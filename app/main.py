@@ -3,8 +3,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models import Driver, Lap, PitStop, Race, Result, SprintResult
 from app.schemas import DriverStatsOut, LapOut, PitStopOut, RaceOut, ResultOut
-from models import Driver, Lap, PitStop, Race, Result, SprintResult
 
 app = FastAPI(title="F1 Race Analyst")
 

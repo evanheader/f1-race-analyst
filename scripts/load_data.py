@@ -1,6 +1,6 @@
 """Load races, drivers, results, sprint results, laps and pit stops into the database.
 
-Usage: uv run python load_data.py [SEASON ...] [--round N]
+Usage: uv run python -m scripts.load_data [SEASON ...] [--round N]
 
 Safe to run again: every write is an upsert, and raw API responses are cached in
 cache/, so a rerun (or a run that stopped halfway) only fetches what is missing.
@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import insert
 
-from models import Driver, Lap, PitStop, Race, Result, SprintResult
+from app.models import Driver, Lap, PitStop, Race, Result, SprintResult
 
 JOLPICA = "https://api.jolpi.ca/ergast/f1"
 OPENF1 = "https://api.openf1.org/v1"
