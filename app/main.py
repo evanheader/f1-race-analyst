@@ -77,7 +77,7 @@ def driver_stats(driver_id: int, db: Session = Depends(get_db)):
 
     races, wins, points = db.execute(
         select(
-            func.count(Result.id),
+            func.count(Result.id).filter(Result.position_text != "W"),
             func.count(Result.id).filter(Result.position_text == "1"),
             func.coalesce(func.sum(Result.points), 0),
         ).where(Result.driver_id == driver_id)

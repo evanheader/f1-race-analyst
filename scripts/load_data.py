@@ -35,6 +35,7 @@ JOLPICA_DELAY = 0.5
 OPENF1_DELAY = 0.3
 
 DELETED_LAP = re.compile(r"CAR (\d+) .*DELETED.* LAP (\d+)")
+TIMED_LAP = re.compile(r"CAR (\d+) .*TIME (\d+):(\d+\.\d+) (DELETED|WILL BE REINSTATED)")
 
 
 class RetryLater(Exception):
@@ -195,6 +196,32 @@ def position_at_lap_ends(laps: list[dict], changes: list[dict]) -> dict[int, int
     return result
 
 
+def deleted_laps(control: list[dict], laps: list[dict]) -> set[tuple[int, int]]:
+    """(car, lap) pairs whose lap time was removed, read from race control messages.
+
+    Most messages name the lap. "(NEXT LAP)" and "WILL BE REINSTATED" messages may only
+    give the lap time, so those are matched to the car's lap with that exact time.
+    """
+    lap_by_time = {(lap["driver_number"], lap["lap_duration"]): lap["lap_number"] for lap in laps}
+    deleted = set()
+    for message in sorted(control, key=lambda m: m["date"]):
+        match = DELETED_LAP.search(message["message"])
+        if match:
+            deleted.add((int(match.group(1)), int(match.group(2))))
+            continue
+        match = TIMED_LAP.search(message["message"])
+        if match:
+            car = int(match.group(1))
+            seconds = round(int(match.group(2)) * 60 + float(match.group(3)), 3)
+            number = lap_by_time.get((car, seconds))
+            if match.group(4) == "DELETED":
+                if number is not None:
+                    deleted.add((car, number))
+            else:
+                deleted.discard((car, number))
+    return deleted
+
+
 def load_race_laps(conn, race, driver_by_number: dict[int, int]) -> None:
     """Laps and pit stops for one race from OpenF1."""
     key = race.openf1_session_key
@@ -204,11 +231,7 @@ def load_race_laps(conn, race, driver_by_number: dict[int, int]) -> None:
     control = openf1("race_control", key)
     pits = openf1("pit", key)
 
-    deleted = set()
-    for message in control:
-        match = DELETED_LAP.search(message["message"])
-        if match:
-            deleted.add((int(match.group(1)), int(match.group(2))))
+    deleted = deleted_laps(control, laps)
 
     laps_by_car = {}
     for lap in laps:
