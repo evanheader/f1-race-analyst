@@ -26,7 +26,7 @@ You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) runni
    docker compose exec api python -m scripts.create_tables
    ```
 
-4. Load the 2023 and 2024 seasons. It is safe to stop and run again: finished races are not repeated.
+4. Load the 2023 and 2024 seasons. This takes about 10 minutes. It is safe to run again: rows are updated, not duplicated.
 
    ```bash
    docker compose exec api python -m scripts.load_data
