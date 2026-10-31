@@ -482,7 +482,7 @@ Result object (inside `Races[].Results[]`):
 
 #### Sprint: `/sprint/`
 
-Sprint results. Same filters as results (`/{season}/{round}/sprint/`, `/drivers/{id}/sprint/` and so on). Rows sit in `Races[].SprintResults[]` with the same fields as a result. The project does not load sprints yet.
+Sprint results. Same filters as results (`/{season}/{round}/sprint/`, `/drivers/{id}/sprint/` and so on). Rows sit in `Races[].SprintResults[]` with the same fields as a result. Our `sprint_results` table comes from this (2021 onward).
 
 #### Qualifying: `/qualifying/`
 

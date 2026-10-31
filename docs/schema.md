@@ -1,15 +1,17 @@
 # Database schema
 
-Five tables, one per kind of thing, linked by ID numbers. Each lap row stores the ID of its race and the ID of its driver.
+Six tables, one per kind of thing, linked by ID numbers. Each lap row stores the ID of its race and the ID of its driver.
 
 Results and race details come from [Jolpica](https://api.jolpi.ca/ergast/). Lap-level data comes from [OpenF1](https://openf1.org/). The two sources identify races and drivers differently, so `races.openf1_session_key` and `results.driver_number` link them.
 
 ```mermaid
 erDiagram
     races ||--o{ results : has
+    races ||--o{ sprint_results : has
     races ||--o{ laps : has
     races ||--o{ pit_stops : has
     drivers ||--o{ results : has
+    drivers ||--o{ sprint_results : has
     drivers ||--o{ laps : drives
     drivers ||--o{ pit_stops : makes
 
@@ -109,6 +111,10 @@ One row per driver per race. Unique on `race_id` + `driver_id`. This is the offi
 | `status` | Jolpica | For example Finished, Lapped or Retired |
 | `points` | Jolpica | NUMERIC, because the 2021 Belgian GP paid 12.5 |
 
+### sprint_results
+
+One row per driver per sprint. Unique on `race_id` + `driver_id`, with an index on `driver_id`. Same columns and sources as `results`, loaded from Jolpica `/sprint/`. Only races with a sprint have rows.
+
 ### laps
 
 One row per lap per driver. Unique on `race_id` + `driver_id` + `lap_number`.
@@ -151,7 +157,9 @@ One row per stop. Unique on `race_id` + `driver_id` + `lap_number`.
 - **Race matching:** link OpenF1 sessions to Jolpica rounds by year and UTC date, not time. Start times can differ between sources: Miami 2026 is 17:00Z in OpenF1 and 20:00Z in Jolpica.
 - **Reloads:** unique constraints stop duplicates, but the loader should upsert rather than fail, so post-race penalties update existing rows.
 - **Pit stop coverage:** OpenF1 has no pit data before the 2023 Spanish GP (round 7). Rounds 1 to 6 of 2023 have `laps` rows but no `pit_stops` rows. Observed on 2026-10-30, not stated in the OpenF1 docs.
-- **Scope:** Grand Prix only. Sprints don't fit the `results` uniqueness rule and would need a session type later.
+- **History starts at 2000:** this covers the full career of every driver on the current grid (Alonso, the longest-serving, debuted in 2001). Drivers who raced before 2000 have partial career stats, for example Michael Schumacher shows 56 wins instead of 91. Loading earlier seasons needs no schema change: `uv run python load_data.py 1950 ... 1999`. Expect some loader fixes for old data.
+- **Current season is cached:** `load_data.py` caches every response by URL forever, so rerunning it won't pick up races held since the last load. Delete the `cache/` files for the current season first.
+- **Sprints:** stored in their own `sprint_results` table (Jolpica `/sprint/`, 2021 onward), because they don't fit the one-row-per-driver-per-race rule on `results`. Same columns as `results`. Driver stats add sprint points to race points, but `races` and `wins` count Grands Prix only. Laps and pit stops are still Grand Prix only.
 - **OpenF1 outages:** free access returns 401 for all data, including past races, while any F1 session is live. The weekly job must run outside sessions and treat a 401 as retry-later. The site is unaffected because it reads from our own database.
 - **No teams table yet:** `results.team` is plain text until an analysis needs more.
 

@@ -50,6 +50,25 @@ class Result(Base):
     points: Mapped[Decimal] = mapped_column(Numeric(5, 2))
 
 
+class SprintResult(Base):
+    __tablename__ = "sprint_results"
+    __table_args__ = (
+        UniqueConstraint("race_id", "driver_id"),
+        Index("ix_sprint_results_driver_id", "driver_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    race_id: Mapped[int] = mapped_column(ForeignKey("races.id"))
+    driver_id: Mapped[int] = mapped_column(ForeignKey("drivers.id"))
+    driver_number: Mapped[int]
+    team: Mapped[str]
+    grid: Mapped[int]
+    position: Mapped[int]
+    position_text: Mapped[str]
+    status: Mapped[str]
+    points: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+
+
 class Lap(Base):
     __tablename__ = "laps"
     __table_args__ = (

@@ -1,4 +1,4 @@
-"""Load races, drivers, results, laps and pit stops into the database.
+"""Load races, drivers, results, sprint results, laps and pit stops into the database.
 
 Usage: uv run python load_data.py [SEASON ...] [--round N]
 
@@ -22,12 +22,13 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import insert
 
-from models import Driver, Lap, PitStop, Race, Result
+from models import Driver, Lap, PitStop, Race, Result, SprintResult
 
 JOLPICA = "https://api.jolpi.ca/ergast/f1"
 OPENF1 = "https://api.openf1.org/v1"
 HEADERS = {"User-Agent": "f1-race-analyst/0.1.0"}
 CACHE_DIR = Path("cache")
+OPENF1_FIRST_SEASON = 2023
 
 # Jolpica allows 4 requests per second; stay well under it.
 JOLPICA_DELAY = 0.5
@@ -96,7 +97,10 @@ def upsert(conn, table, rows: list[dict], key: list[str]) -> None:
 
 def load_races(conn, season: int) -> None:
     """Calendar from Jolpica, each race matched to its OpenF1 session by UTC date."""
-    sessions = get_json(f"{OPENF1}/sessions?year={season}&session_name=Race", OPENF1_DELAY)
+    # OpenF1 has no data before 2023.
+    sessions = []
+    if season >= OPENF1_FIRST_SEASON:
+        sessions = get_json(f"{OPENF1}/sessions?year={season}&session_name=Race", OPENF1_DELAY)
     session_by_date = {s["date_start"][:10]: s["session_key"] for s in sessions}
 
     rows = []
@@ -106,7 +110,7 @@ def load_races(conn, season: int) -> None:
             # Night races (Las Vegas) start after midnight UTC, so OpenF1's date is a day later.
             next_day = (date.fromisoformat(race["date"]) + timedelta(days=1)).isoformat()
             session_key = session_by_date.get(next_day)
-        if session_key is None:
+        if session_key is None and season >= OPENF1_FIRST_SEASON:
             print(f"  no OpenF1 session for {season} round {race['round']} ({race['date']})")
         rows.append({
             "season": int(race["season"]),
@@ -120,9 +124,10 @@ def load_races(conn, season: int) -> None:
     print(f"{season}: {len(rows)} races")
 
 
-def load_results(conn, season: int) -> None:
-    """Drivers and results for a whole season from Jolpica."""
-    races = jolpica_pages(f"{season}/results/")
+def load_results(conn, season: int, sprint: bool = False) -> None:
+    """Drivers and results (or sprint results) for a whole season from Jolpica."""
+    endpoint, key, table = ("sprint", "SprintResults", SprintResult) if sprint else ("results", "Results", Result)
+    races = jolpica_pages(f"{season}/{endpoint}/")
     race_ids = {
         (r.season, r.round): r.id
         for r in conn.execute(Race.__table__.select().where(Race.season == season))
@@ -130,7 +135,7 @@ def load_results(conn, season: int) -> None:
 
     drivers = {}
     for race in races:
-        for result in race["Results"]:
+        for result in race[key]:
             d = result["Driver"]
             drivers[d["driverId"]] = {
                 "driver_ref": d["driverId"],
@@ -145,7 +150,7 @@ def load_results(conn, season: int) -> None:
 
     rows = []
     for race in races:
-        for r in race["Results"]:
+        for r in race[key]:
             rows.append({
                 "race_id": race_ids[(season, int(race["round"]))],
                 "driver_id": driver_ids[r["Driver"]["driverId"]],
@@ -157,8 +162,8 @@ def load_results(conn, season: int) -> None:
                 "status": r["status"],
                 "points": Decimal(r["points"]),
             })
-    upsert(conn, Result, rows, ["race_id", "driver_id"])
-    print(f"{season}: {len(drivers)} drivers, {len(rows)} results")
+    upsert(conn, table, rows, ["race_id", "driver_id"])
+    print(f"{season}: {len(drivers)} drivers, {len(rows)} {'sprint results' if sprint else 'results'}")
 
 
 def parse_time(text: str) -> datetime:
@@ -177,9 +182,9 @@ def position_at_lap_ends(laps: list[dict], changes: list[dict]) -> dict[int, int
     result = {}
     for number, lap in by_lap.items():
         following = by_lap.get(number + 1)
-        if following is not None:
+        if following is not None and following["date_start"] is not None:
             end = parse_time(following["date_start"])
-        elif lap["lap_duration"] is not None:
+        elif lap["lap_duration"] is not None and lap["date_start"] is not None:
             end = parse_time(lap["date_start"]).timestamp() + lap["lap_duration"]
             end = datetime.fromtimestamp(end, tz=parse_time(lap["date_start"]).tzinfo)
         else:
@@ -276,6 +281,8 @@ def main() -> None:
                 load_races(conn, season)
             with engine.begin() as conn:
                 load_results(conn, season)
+            with engine.begin() as conn:
+                load_results(conn, season, sprint=True)
 
             with engine.connect() as conn:
                 races = conn.execute(
