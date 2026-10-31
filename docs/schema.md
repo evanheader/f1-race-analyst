@@ -150,6 +150,7 @@ One row per stop. Unique on `race_id` + `driver_id` + `lap_number`.
 
 - **Race matching:** link OpenF1 sessions to Jolpica rounds by year and UTC date, not time. Start times can differ between sources: Miami 2026 is 17:00Z in OpenF1 and 20:00Z in Jolpica.
 - **Reloads:** unique constraints stop duplicates, but the loader should upsert rather than fail, so post-race penalties update existing rows.
+- **Pit stop coverage:** OpenF1 has no pit data before the 2023 Spanish GP (round 7). Rounds 1 to 6 of 2023 have `laps` rows but no `pit_stops` rows. Observed on 2026-10-30, not stated in the OpenF1 docs.
 - **Scope:** Grand Prix only. Sprints don't fit the `results` uniqueness rule and would need a session type later.
 - **OpenF1 outages:** free access returns 401 for all data, including past races, while any F1 session is live. The weekly job must run outside sessions and treat a 401 as retry-later. The site is unaffected because it reads from our own database.
 - **No teams table yet:** `results.team` is plain text until an analysis needs more.
