@@ -108,7 +108,7 @@ One row per driver per race. Unique on `race_id` + `driver_id`. This is the offi
 | `grid` | Jolpica | Starting position |
 | `position` | Jolpica | Numeric order only. Read it with `position_text` |
 | `position_text` | Jolpica | For example `1`, `R` or `W`. A driver who didn't start can still have a `position` of 20 |
-| `status` | Jolpica | For example Finished, Lapped or Retired |
+| `status` | Jolpica | For example Finished, Lapped or Retired. Check this for disqualifications: `position_text` is usually `D`, but a few rows are numeric, such as Russell's `20` at Spa 2024 |
 | `points` | Jolpica | NUMERIC, because the 2021 Belgian GP paid 12.5 |
 
 ### sprint_results
@@ -131,7 +131,7 @@ One row per lap per driver. Unique on `race_id` + `driver_id` + `lap_number`.
 | `stint_number` | OpenF1 `stints` | Nullable |
 | `position` | OpenF1 `position` | Derived from a time series. Nullable |
 | `is_pit_out_lap` | OpenF1 `laps` | Excludes out-laps from pace analysis |
-| `is_deleted` | OpenF1 `race_control` | Parsed from message text such as `CAR 5 (BOR) TIME 1:53.937 DELETED - TRACK LIMITS AT TURN 11 LAP 2`. The lap and car come from the text, not the row's fields |
+| `is_deleted` | OpenF1 `race_control` | Parsed from message text such as `CAR 5 (BOR) TIME 1:53.937 DELETED - TRACK LIMITS AT TURN 11 LAP 2`. The lap and car come from the text, not the row's fields. Messages ending `(NEXT LAP)` give no lap number, so they are matched by lap time, and `WILL BE REINSTATED` messages clear the flag |
 
 ### pit_stops
 
@@ -158,15 +158,15 @@ One row per stop. Unique on `race_id` + `driver_id` + `lap_number`.
 - **Reloads:** unique constraints stop duplicates, but the loader should upsert rather than fail, so post-race penalties update existing rows.
 - **Pit stop coverage:** OpenF1 has no pit data before the 2023 Spanish GP (round 7). Rounds 1 to 6 of 2023 have `laps` rows but no `pit_stops` rows. Observed on 2026-10-30, not stated in the OpenF1 docs.
 - **History starts at 2000:** this covers the full career of every driver on the current grid (Alonso, the longest-serving, debuted in 2001). Drivers who raced before 2000 have partial career stats, for example Michael Schumacher shows 56 wins instead of 91. Loading earlier seasons needs no schema change: `uv run python -m scripts.load_data 1950 ... 1999`. Expect some loader fixes for old data.
-- **Current season is cached:** `scripts/load_data.py` caches every response by URL forever, so rerunning it won't pick up races held since the last load. Delete the `cache/` files for the current season first.
-- **Sprints:** stored in their own `sprint_results` table (Jolpica `/sprint/`, 2021 onward), because they don't fit the one-row-per-driver-per-race rule on `results`. Same columns as `results`. Driver stats add sprint points to race points, but `races` and `wins` count Grands Prix only. Laps and pit stops are still Grand Prix only.
+- **Current season is cached:** `scripts/load_data.py` caches every response by URL forever, so rerunning it won't pick up races held since the last load. That includes empty responses for races that hadn't happened yet. File names are URL hashes, so one season's files can't be picked out: delete the whole `cache/` folder first.
+- **Sprints:** stored in their own `sprint_results` table (Jolpica `/sprint/`, 2021 onward), because they don't fit the one-row-per-driver-per-race rule on `results`. Same columns as `results`. Driver stats add sprint points to race points, but `races` and `wins` count Grands Prix only, and `races` leaves out withdrawals (`position_text` of `W`). Laps and pit stops are still Grand Prix only.
 - **OpenF1 outages:** free access returns 401 for all data, including past races, while any F1 session is live. The weekly job must run outside sessions and treat a 401 as retry-later. The site is unaffected because it reads from our own database.
 - **No teams table yet:** `results.team` is plain text until an analysis needs more.
 
 ## Verification status
 
-Not yet checked, because OpenF1 was locked by a live session when this was written:
+Checked on 2026-10-30 against the cached OpenF1 responses:
 
-- [ ] No two pit rows share race, driver and lap in the 2026 US GP
-- [ ] Every 2023-2026 OpenF1 race matches exactly one Jolpica round by UTC date
+- [x] No two pit rows share race, driver and lap in the 2026 US GP, or in any other race loaded so far
+- [x] Every 2023-2026 OpenF1 race matches exactly one Jolpica round by UTC date. The only sessions with no round are cancelled races: Imola 2023, Bahrain 2026 and Saudi Arabia 2026. Las Vegas 2024 needed the next-day rule
  
