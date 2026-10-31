@@ -161,6 +161,8 @@ Tyre age on a given lap is `tyre_age_at_start + (lap_number - lap_start)`.
 Cars entering and moving through the pit lane. Feeds the `pit_stops` table.
 Example: `/v1/pit?session_key=9877&stop_duration<2.3`
 
+Coverage: no data before the 2023 Spanish GP (round 7). Earlier sessions return 404 "No results found." Observed on 2026-10-30, not stated in the docs.
+
 | Field | Type | Description |
 |---|---|---|
 | `lap_number` | int | Lap of the stop |
@@ -480,7 +482,7 @@ Result object (inside `Races[].Results[]`):
 
 #### Sprint: `/sprint/`
 
-Sprint results. Same filters as results (`/{season}/{round}/sprint/`, `/drivers/{id}/sprint/` and so on). Rows sit in `Races[].SprintResults[]` with the same fields as a result. The project does not load sprints yet.
+Sprint results. Same filters as results (`/{season}/{round}/sprint/`, `/drivers/{id}/sprint/` and so on). Rows sit in `Races[].SprintResults[]` with the same fields as a result. Our `sprint_results` table comes from this (2021 onward).
 
 #### Qualifying: `/qualifying/`
 
