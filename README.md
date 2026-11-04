@@ -1,5 +1,7 @@
 # f1-race-analyst
 
+[![CI](https://github.com/evanheader/f1-race-analyst/actions/workflows/ci.yml/badge.svg)](https://github.com/evanheader/f1-race-analyst/actions/workflows/ci.yml)
+
 A REST API for looking up Formula 1 race results, lap times, tire stints and pit stops, built with FastAPI and PostgreSQL.
 
 This is an unofficial fan project, not affiliated with Formula 1. Race data comes from [Jolpica](https://github.com/jolpica/jolpica-f1) and [OpenF1](https://openf1.org/).
@@ -37,6 +39,25 @@ You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) runni
 5. Open <http://localhost:8000/docs> to try the API, or <http://localhost:8000/races> to see the races.
 
 To stop everything, run `docker compose down`. Your data is kept for next time.
+
+## Run the tests
+
+The tests use a separate `f1_test` database, so they never touch your real data, and they never call the internet.
+
+1. Start the database, and create `f1_test` once.
+
+   ```bash
+   docker compose up -d db
+   docker compose exec db createdb -U f1 f1_test
+   ```
+
+2. Run the checks that CI runs.
+
+   ```bash
+   uv run ruff check .
+   uv run ruff format --check .
+   uv run pytest --cov=app --cov=scripts
+   ```
 
 ## More documentation
 
