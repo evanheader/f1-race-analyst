@@ -41,6 +41,14 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 - Each race loads in its own transaction, so a crash never leaves half a race behind.
 - Raw responses are cached on disk because Jolpica allows 500 requests per hour. A rerun only fetches what is missing.
 
+## Testing
+
+- **Postgres, not SQLite.** The loader's upserts use Postgres-only `ON CONFLICT`, so tests run against a real `f1_test` database. The tests refuse to start unless the database name ends in `_test`.
+- **One rolled-back transaction per test.** The tables are created once per run, and each test's rows disappear when it ends, so tests can run in any order.
+- **No network.** HTTP calls are replaced with small hand-written responses shaped like the real APIs, so every case is visible in the test file.
+- **Expected values come from the documented rules**, not from what the code returned. Each rule was checked by breaking the code on purpose and confirming that a test failed. This found the SAI bug below and two tests that were too weak.
+- **A bug found this way:** race control sometimes reinstates a lap by number without a time (`CAR 55 (SAI) LAP 1 WILL BE REINSTATED`, Singapore 2024 and Monza 2026), and the loader used to leave that lap deleted.
+
 ## Known limits
 
 - OpenF1's free tier returns 401 while any F1 session is live, so loads must run outside sessions. The API is unaffected because it reads from our own database.

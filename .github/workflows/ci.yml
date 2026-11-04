@@ -1,0 +1,33 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # Only protects this run's throwaway database, which is deleted afterwards.
+      DATABASE_URL: postgresql://f1:f1_ci_password@localhost:5432/f1_test
+      TEST_DATABASE_URL: postgresql://f1:f1_ci_password@localhost:5432/f1_test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: f1
+          POSTGRES_PASSWORD: f1_ci_password
+          POSTGRES_DB: f1_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U f1"
+          --health-interval 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      # setup-uv publishes only exact version tags, not a moving v10.
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest --cov=app --cov=scripts --cov-report=term-missing --cov-fail-under=95
+      - run: docker build -t f1-race-analyst .

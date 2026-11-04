@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -8,6 +10,8 @@ from app.schemas import DriverStatsOut, LapOut, PitStopOut, RaceOut, ResultOut
 
 app = FastAPI(title="F1 Race Analyst")
 
+Db = Annotated[Session, Depends(get_db)]
+
 
 def get_race_or_404(db: Session, race_id: int) -> Race:
     race = db.get(Race, race_id)
@@ -17,7 +21,7 @@ def get_race_or_404(db: Session, race_id: int) -> Race:
 
 
 @app.get("/races", response_model=list[RaceOut])
-def list_races(season: int | None = None, db: Session = Depends(get_db)):
+def list_races(db: Db, season: int | None = None):
     query = select(Race).order_by(Race.season, Race.round)
     if season is not None:
         query = query.where(Race.season == season)
@@ -25,7 +29,7 @@ def list_races(season: int | None = None, db: Session = Depends(get_db)):
 
 
 @app.get("/races/{race_id}/results", response_model=list[ResultOut])
-def race_results(race_id: int, db: Session = Depends(get_db)):
+def race_results(race_id: int, db: Db):
     get_race_or_404(db, race_id)
     rows = db.execute(
         select(
@@ -48,7 +52,7 @@ def race_results(race_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/races/{race_id}/laps", response_model=list[LapOut])
-def race_laps(race_id: int, driver_id: int | None = None, db: Session = Depends(get_db)):
+def race_laps(race_id: int, db: Db, driver_id: int | None = None):
     get_race_or_404(db, race_id)
     query = select(Lap).where(Lap.race_id == race_id).order_by(Lap.driver_id, Lap.lap_number)
     if driver_id is not None:
@@ -59,7 +63,7 @@ def race_laps(race_id: int, driver_id: int | None = None, db: Session = Depends(
 
 
 @app.get("/races/{race_id}/pit-stops", response_model=list[PitStopOut])
-def race_pit_stops(race_id: int, db: Session = Depends(get_db)):
+def race_pit_stops(race_id: int, db: Db):
     get_race_or_404(db, race_id)
     query = (
         select(PitStop)
@@ -70,7 +74,7 @@ def race_pit_stops(race_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/drivers/{driver_id}/stats", response_model=DriverStatsOut)
-def driver_stats(driver_id: int, db: Session = Depends(get_db)):
+def driver_stats(driver_id: int, db: Db):
     driver = db.get(Driver, driver_id)
     if driver is None:
         raise HTTPException(status_code=404, detail="Driver not found")

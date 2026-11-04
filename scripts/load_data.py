@@ -36,6 +36,7 @@ OPENF1_DELAY = 0.3
 
 DELETED_LAP = re.compile(r"CAR (\d+) .*DELETED.* LAP (\d+)")
 TIMED_LAP = re.compile(r"CAR (\d+) .*TIME (\d+):(\d+\.\d+) (DELETED|WILL BE REINSTATED)")
+REINSTATED_LAP = re.compile(r"CAR (\d+) .*LAP (\d+) WILL BE REINSTATED")
 
 
 class RetryLater(Exception):
@@ -91,8 +92,11 @@ def upsert(conn, table, rows: list[dict], key: list[str]) -> None:
     if not rows:
         return
     stmt = insert(table)
-    update = {c.name: stmt.excluded[c.name] for c in table.__table__.columns
-              if c.name != "id" and c.name not in key}
+    update = {
+        c.name: stmt.excluded[c.name]
+        for c in table.__table__.columns
+        if c.name != "id" and c.name not in key
+    }
     conn.execute(stmt.on_conflict_do_update(index_elements=key, set_=update), rows)
 
 
@@ -113,21 +117,25 @@ def load_races(conn, season: int) -> None:
             session_key = session_by_date.get(next_day)
         if session_key is None and season >= OPENF1_FIRST_SEASON:
             print(f"  no OpenF1 session for {season} round {race['round']} ({race['date']})")
-        rows.append({
-            "season": int(race["season"]),
-            "round": int(race["round"]),
-            "name": race["raceName"],
-            "date": datetime.strptime(race["date"], "%Y-%m-%d").date(),
-            "circuit_ref": race["Circuit"]["circuitId"],
-            "openf1_session_key": session_key,
-        })
+        rows.append(
+            {
+                "season": int(race["season"]),
+                "round": int(race["round"]),
+                "name": race["raceName"],
+                "date": datetime.strptime(race["date"], "%Y-%m-%d").date(),
+                "circuit_ref": race["Circuit"]["circuitId"],
+                "openf1_session_key": session_key,
+            }
+        )
     upsert(conn, Race, rows, ["season", "round"])
     print(f"{season}: {len(rows)} races")
 
 
 def load_results(conn, season: int, sprint: bool = False) -> None:
     """Drivers and results (or sprint results) for a whole season from Jolpica."""
-    endpoint, key, table = ("sprint", "SprintResults", SprintResult) if sprint else ("results", "Results", Result)
+    endpoint, key, table = (
+        ("sprint", "SprintResults", SprintResult) if sprint else ("results", "Results", Result)
+    )
     races = jolpica_pages(f"{season}/{endpoint}/")
     race_ids = {
         (r.season, r.round): r.id
@@ -152,19 +160,23 @@ def load_results(conn, season: int, sprint: bool = False) -> None:
     rows = []
     for race in races:
         for r in race[key]:
-            rows.append({
-                "race_id": race_ids[(season, int(race["round"]))],
-                "driver_id": driver_ids[r["Driver"]["driverId"]],
-                "driver_number": int(r["number"]),
-                "team": r["Constructor"]["name"],
-                "grid": int(r["grid"]),
-                "position": int(r["position"]),
-                "position_text": r["positionText"],
-                "status": r["status"],
-                "points": Decimal(r["points"]),
-            })
+            rows.append(
+                {
+                    "race_id": race_ids[(season, int(race["round"]))],
+                    "driver_id": driver_ids[r["Driver"]["driverId"]],
+                    "driver_number": int(r["number"]),
+                    "team": r["Constructor"]["name"],
+                    "grid": int(r["grid"]),
+                    "position": int(r["position"]),
+                    "position_text": r["positionText"],
+                    "status": r["status"],
+                    "points": Decimal(r["points"]),
+                }
+            )
     upsert(conn, table, rows, ["race_id", "driver_id"])
-    print(f"{season}: {len(drivers)} drivers, {len(rows)} {'sprint results' if sprint else 'results'}")
+    print(
+        f"{season}: {len(drivers)} drivers, {len(rows)} {'sprint results' if sprint else 'results'}"
+    )
 
 
 def parse_time(text: str) -> datetime:
@@ -209,6 +221,10 @@ def deleted_laps(control: list[dict], laps: list[dict]) -> set[tuple[int, int]]:
         if match:
             deleted.add((int(match.group(1)), int(match.group(2))))
             continue
+        match = REINSTATED_LAP.search(message["message"])
+        if match:
+            deleted.discard((int(match.group(1)), int(match.group(2))))
+            continue
         match = TIMED_LAP.search(message["message"])
         if match:
             car = int(match.group(1))
@@ -251,23 +267,26 @@ def load_race_laps(conn, race, driver_by_number: dict[int, int]) -> None:
         for lap in car_laps:
             number = lap["lap_number"]
             stint = next(
-                (s for s in car_stints
-                 if s["lap_start"] <= number <= (s["lap_end"] or number)),
+                (s for s in car_stints if s["lap_start"] <= number <= (s["lap_end"] or number)),
                 None,
             )
             duration = lap["lap_duration"]
-            lap_rows.append({
-                "race_id": race.id,
-                "driver_id": driver_by_number[car],
-                "lap_number": number,
-                "lap_time_seconds": None if duration is None else Decimal(str(duration)),
-                "tire_type": stint["compound"] if stint else None,
-                "tire_age": (stint["tyre_age_at_start"] + number - stint["lap_start"]) if stint else None,
-                "stint_number": stint["stint_number"] if stint else None,
-                "position": position_by_lap[number],
-                "is_pit_out_lap": bool(lap["is_pit_out_lap"]),
-                "is_deleted": (car, number) in deleted,
-            })
+            lap_rows.append(
+                {
+                    "race_id": race.id,
+                    "driver_id": driver_by_number[car],
+                    "lap_number": number,
+                    "lap_time_seconds": None if duration is None else Decimal(str(duration)),
+                    "tire_type": stint["compound"] if stint else None,
+                    "tire_age": (stint["tyre_age_at_start"] + number - stint["lap_start"])
+                    if stint
+                    else None,
+                    "stint_number": stint["stint_number"] if stint else None,
+                    "position": position_by_lap[number],
+                    "is_pit_out_lap": bool(lap["is_pit_out_lap"]),
+                    "is_deleted": (car, number) in deleted,
+                }
+            )
 
     pit_rows = {}
     for pit in pits:
@@ -319,7 +338,9 @@ def main() -> None:
                 with engine.begin() as conn:
                     driver_by_number = {
                         r.driver_number: r.driver_id
-                        for r in conn.execute(Result.__table__.select().where(Result.race_id == race.id))
+                        for r in conn.execute(
+                            Result.__table__.select().where(Result.race_id == race.id)
+                        )
                     }
                     load_race_laps(conn, race, driver_by_number)
         except RetryLater as error:
