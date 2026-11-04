@@ -36,6 +36,7 @@ OPENF1_DELAY = 0.3
 
 DELETED_LAP = re.compile(r"CAR (\d+) .*DELETED.* LAP (\d+)")
 TIMED_LAP = re.compile(r"CAR (\d+) .*TIME (\d+):(\d+\.\d+) (DELETED|WILL BE REINSTATED)")
+REINSTATED_LAP = re.compile(r"CAR (\d+) .*LAP (\d+) WILL BE REINSTATED")
 
 
 class RetryLater(Exception):
@@ -219,6 +220,10 @@ def deleted_laps(control: list[dict], laps: list[dict]) -> set[tuple[int, int]]:
         match = DELETED_LAP.search(message["message"])
         if match:
             deleted.add((int(match.group(1)), int(match.group(2))))
+            continue
+        match = REINSTATED_LAP.search(message["message"])
+        if match:
+            deleted.discard((int(match.group(1)), int(match.group(2))))
             continue
         match = TIMED_LAP.search(message["message"])
         if match:
