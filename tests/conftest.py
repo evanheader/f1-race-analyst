@@ -17,7 +17,10 @@ from sqlalchemy.orm import Session
 load_dotenv()
 TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
 if not make_url(TEST_DATABASE_URL).database.endswith("_test"):
-    raise RuntimeError(f"TEST_DATABASE_URL must name a *_test database, got {TEST_DATABASE_URL}")
+    # str() of a URL masks the password.
+    raise RuntimeError(
+        f"TEST_DATABASE_URL must name a *_test database, got {make_url(TEST_DATABASE_URL)}"
+    )
 # app.database builds its engine on import. Point it at the test database too, so
 # nothing in a test can reach real data even by accident.
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
