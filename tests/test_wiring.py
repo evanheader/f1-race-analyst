@@ -102,16 +102,13 @@ def add_result(connection, race, driver_id, number):
     )
 
 
-def test_main_defaults_to_2023_and_2024(loader):
+def test_main_defaults_to_2025(loader):
     calls = loader()
 
     assert [c for c in calls if c[0] != "laps"] == [
-        ("races", 2023),
-        ("results", 2023),
-        ("sprint", 2023),
-        ("races", 2024),
-        ("results", 2024),
-        ("sprint", 2024),
+        ("races", 2025),
+        ("results", 2025),
+        ("sprint", 2025),
     ]
 
 
