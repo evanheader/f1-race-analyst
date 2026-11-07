@@ -347,10 +347,13 @@ def test_output_is_json_serialisable(db, monza, make_lap, make_pit_stop):
         "get_race_results": {"season": 2023, "race": "monza"},
         "compare_drivers": {"season": 2023, "race": "monza", "driver_a": "ver", "driver_b": "per"},
         "get_pit_strategy": {"season": 2023, "race": "monza", "driver": "ver"},
+        "get_laps": {"season": 2023, "race": "monza", "driver": "ver"},
+        "get_laps lap": {"season": 2023, "race": "monza", "lap": 1},
+        "get_laps both": {"season": 2023, "race": "monza", "driver": "ver", "lap": 1},
     }
 
     for name, tool_input in calls.items():
-        output = run_tool(db, name, tool_input)
+        output = run_tool(db, name.split()[0], tool_input)
         assert "error" not in output
         json.dumps(output)
 
@@ -361,6 +364,7 @@ def test_every_tool_definition_matches_a_function_and_its_required_inputs(db):
         "compare_drivers": ["season", "race", "driver_a", "driver_b"],
         "get_pit_strategy": ["season", "race", "driver"],
         "get_season_summary": ["season"],
+        "get_laps": ["season", "race"],
     }
 
     assert {tool["name"] for tool in TOOLS} == set(required_by_tool)
@@ -619,3 +623,177 @@ def test_season_without_races_says_so(db):
         output = run_tool(db, "get_season_summary", {"season": 1999, **who})
 
         assert "no results loaded for that season" in output["error"]
+
+
+# get_laps
+
+
+def laps_request(**fields):
+    return {"season": 2023, "race": "monza", **fields}
+
+
+def test_laps_by_driver_lists_laps_in_order_with_a_summary(db, monza, make_lap):
+    race, ver, per = monza
+    make_lap(race, ver, 3, "91.000", position=1, tire_type="HARD", tire_age=2)
+    make_lap(race, ver, 1, "95.000", position=2, tire_type="MEDIUM", tire_age=0)
+    make_lap(race, ver, 2, "92.500", position=1, tire_type="MEDIUM", tire_age=1)
+    make_lap(race, per, 1, "80.000", position=1)
+
+    output = run_tool(db, "get_laps", laps_request(driver="verstappen"))
+
+    assert output["driver"] == "Max Verstappen"
+    assert output["race"]["name"] == "Italian Grand Prix"
+    assert output["laps"] == [
+        {
+            "lap": 1,
+            "time": 95.0,
+            "pos": 2,
+            "tire": "MEDIUM",
+            "tire_age": 0,
+            "pit_out": False,
+            "deleted": False,
+        },
+        {
+            "lap": 2,
+            "time": 92.5,
+            "pos": 1,
+            "tire": "MEDIUM",
+            "tire_age": 1,
+            "pit_out": False,
+            "deleted": False,
+        },
+        {
+            "lap": 3,
+            "time": 91.0,
+            "pos": 1,
+            "tire": "HARD",
+            "tire_age": 2,
+            "pit_out": False,
+            "deleted": False,
+        },
+    ]
+    assert output["summary"] == {
+        "laps": 3,
+        "fastest_clean_lap": {"lap": 3, "time": 91.0},
+        "deleted_laps": [],
+    }
+
+
+def test_laps_summary_skips_pit_out_deleted_and_untimed_laps(db, monza, make_lap):
+    race, ver, _ = monza
+    make_lap(race, ver, 1, "70.000", is_pit_out_lap=True)
+    make_lap(race, ver, 2, "71.000", is_deleted=True)
+    make_lap(race, ver, 3, None)
+    make_lap(race, ver, 4, "90.000")
+    make_lap(race, ver, 5, "89.000")
+    make_lap(race, ver, 6, "60.000", is_deleted=True)
+
+    output = run_tool(db, "get_laps", laps_request(driver="ver"))
+
+    assert output["summary"] == {
+        "laps": 6,
+        "fastest_clean_lap": {"lap": 5, "time": 89.0},
+        "deleted_laps": [2, 6],
+    }
+    assert output["laps"][2]["time"] is None
+
+
+def test_laps_summary_without_any_clean_lap(db, monza, make_lap):
+    race, ver, _ = monza
+    make_lap(race, ver, 1, None)
+
+    output = run_tool(db, "get_laps", laps_request(driver="ver"))
+
+    assert output["summary"]["fastest_clean_lap"] is None
+
+
+def test_laps_by_lap_gives_the_running_order_with_null_positions_last(
+    db, monza, make_lap, make_driver, make_result
+):
+    race, ver, per = monza
+    ham = make_driver("hamilton", "HAM", "Lewis Hamilton")
+    make_result(race, ham, position=3)
+    make_lap(race, per, 4, "91.000", position=2, tire_type="SOFT")
+    make_lap(race, ham, 4, None, position=None)
+    make_lap(race, ver, 4, "90.000", position=1, tire_type="MEDIUM")
+    make_lap(race, ver, 5, "89.000", position=2)
+
+    output = run_tool(db, "get_laps", laps_request(lap=4))
+
+    assert output["lap"] == 4
+    assert output["running_order"] == [
+        {"pos": 1, "driver": "Max Verstappen", "code": "VER", "time": 90.0, "tire": "MEDIUM"},
+        {"pos": 2, "driver": "Sergio Perez", "code": "PER", "time": 91.0, "tire": "SOFT"},
+        {"pos": None, "driver": "Lewis Hamilton", "code": "HAM", "time": None, "tire": None},
+    ]
+
+
+def test_laps_with_driver_and_lap_gives_that_one_lap(db, monza, make_lap):
+    race, ver, per = monza
+    make_lap(race, ver, 1, "95.000")
+    make_lap(race, ver, 2, "92.000", position=3, tire_type="HARD", tire_age=7, is_deleted=True)
+    make_lap(race, per, 2, "80.000")
+
+    output = run_tool(db, "get_laps", laps_request(driver="ver", lap=2))
+
+    assert output["driver"] == "Max Verstappen"
+    assert output["lap"] == {
+        "lap": 2,
+        "time": 92.0,
+        "pos": 3,
+        "tire": "HARD",
+        "tire_age": 7,
+        "pit_out": False,
+        "deleted": True,
+    }
+    assert "summary" not in output
+
+
+def test_laps_beyond_the_race_says_how_many_laps_it_had(db, monza, make_lap):
+    race, ver, per = monza
+    make_lap(race, ver, 53)
+    make_lap(race, per, 51)
+
+    for lap in (54, 0):
+        output = run_tool(db, "get_laps", laps_request(lap=lap))
+
+        assert output["error"] == f"Lap {lap} does not exist: the race had 53 laps."
+
+
+def test_laps_driver_who_retired_before_the_lap_has_no_such_lap(db, monza, make_lap):
+    race, ver, per = monza
+    make_lap(race, ver, 10)
+    make_lap(race, per, 3)
+
+    output = run_tool(db, "get_laps", laps_request(driver="perez", lap=10))
+
+    assert output["error"] == "Sergio Perez has no lap 10 in this race."
+
+
+def test_laps_needs_a_driver_or_a_lap(db, monza):
+    output = run_tool(db, "get_laps", laps_request())
+
+    assert output["error"] == "Give a driver, a lap number, or both."
+
+
+def test_laps_unknown_driver_lists_the_races_drivers(db, monza, make_lap):
+    make_lap(monza[0], monza[1], 1)
+
+    output = run_tool(db, "get_laps", laps_request(driver="hamilton"))
+
+    assert "No driver matching 'hamilton'" in output["error"]
+
+
+def test_laps_without_lap_data_returns_race_info_and_a_note(
+    db, make_race, make_driver, make_result
+):
+    race = make_race(season=2019, round=1, name="Australian Grand Prix", circuit_ref="albert_park")
+    make_result(race, make_driver("hamilton", "HAM", "Lewis Hamilton"), position=2)
+
+    for fields in ({"driver": "ham"}, {"lap": 1}):
+        output = run_tool(db, "get_laps", {"season": 2019, "race": "australian", **fields})
+
+        assert output["race"]["name"] == "Australian Grand Prix"
+        assert "Lap data is not available" in output["note"]
+        assert "laps" not in output
+        assert "running_order" not in output

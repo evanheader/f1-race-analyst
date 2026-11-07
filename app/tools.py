@@ -125,6 +125,34 @@ TOOLS = [
             "required": ["season"],
         },
     },
+    {
+        "name": "get_laps",
+        "description": (
+            "Get lap-by-lap data for one race. Give a driver, a lap number, or both. With only "
+            "a driver it returns that driver's laps in order (lap, time in seconds or null, "
+            "position, tire, tire_age, pit_out, deleted) plus a summary: number of laps, "
+            "fastest clean lap (lap number and time) and the lap numbers of deleted laps. "
+            "Clean laps have a recorded time and are not pit out laps or deleted laps. With "
+            "only a lap it returns the running order at the end of that lap: every driver "
+            "with position, driver name, code, time and tire, in position order. With both it "
+            "returns that driver's single lap. Use it for lap-by-lap questions: who led on "
+            "lap N, lap times, which lap was fastest, deleted laps (for example for track "
+            "limits), tire age on a lap, or how a driver's pace changed. Example: season "
+            "2024, race 'interlagos', lap 35. Positions are derived from timing data and can "
+            "be slightly off around pit stops and on a driver's final lap, so for final "
+            "positions use get_race_results. Lap data exists only from 2023; earlier races "
+            "return a note instead. " + LIMITS
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                **RACE_PROPERTIES,
+                "driver": {"type": "string", "description": DRIVER_DESCRIPTION},
+                "lap": {"type": "integer", "description": "A lap number, starting at 1."},
+            },
+            "required": ["season", "race"],
+        },
+    },
 ]
 
 
@@ -436,11 +464,92 @@ def get_season_summary(
     }
 
 
+def _lap_entry(lap: Lap) -> dict:
+    return {
+        "lap": lap.lap_number,
+        "time": _number(lap.lap_time_seconds),
+        "pos": lap.position,
+        "tire": lap.tire_type,
+        "tire_age": lap.tire_age,
+        "pit_out": lap.is_pit_out_lap,
+        "deleted": lap.is_deleted,
+    }
+
+
+def get_laps(
+    db: Session, season: int, race: str, driver: str | None = None, lap: int | None = None
+) -> dict:
+    if driver is None and lap is None:
+        raise ToolError("Give a driver, a lap number, or both.")
+    race_row = find_race(db, season, race)
+    driver_row = None if driver is None else find_driver(db, race_row, driver)
+    output = {"race": _race_info(race_row)}
+    if not _has_laps(db, race_row):
+        output["note"] = "Lap data is not available for this race (starts in 2023)."
+        return output
+
+    race_laps = Lap.race_id == race_row.id
+    if lap is not None:
+        total = db.scalar(select(func.max(Lap.lap_number)).where(race_laps))
+        if not 1 <= lap <= total:
+            raise ToolError(f"Lap {lap} does not exist: the race had {total} laps.")
+
+    if driver_row is None:
+        rows = db.execute(
+            select(Lap, Driver)
+            .join(Driver, Driver.id == Lap.driver_id)
+            .where(race_laps, Lap.lap_number == lap)
+            .order_by(Lap.position.nulls_last(), Driver.full_name)
+        ).all()
+        output["lap"] = lap
+        output["running_order"] = [
+            {
+                "pos": row.position,
+                "driver": row_driver.full_name,
+                "code": row_driver.code,
+                "time": _number(row.lap_time_seconds),
+                "tire": row.tire_type,
+            }
+            for row, row_driver in rows
+        ]
+        return output
+
+    conditions = [race_laps, Lap.driver_id == driver_row.id]
+    if lap is not None:
+        conditions.append(Lap.lap_number == lap)
+    laps = db.scalars(select(Lap).where(*conditions).order_by(Lap.lap_number)).all()
+    output["driver"] = driver_row.full_name
+    if lap is not None:
+        if not laps:
+            raise ToolError(f"{driver_row.full_name} has no lap {lap} in this race.")
+        output["lap"] = _lap_entry(laps[0])
+        return output
+
+    clean = [
+        x
+        for x in laps
+        if x.lap_time_seconds is not None and not x.is_pit_out_lap and not x.is_deleted
+    ]
+    fastest = min(clean, key=lambda x: x.lap_time_seconds, default=None)
+    output["summary"] = {
+        "laps": len(laps),
+        "fastest_clean_lap": (
+            None
+            if fastest is None
+            else {"lap": fastest.lap_number, "time": _number(fastest.lap_time_seconds)}
+        ),
+        "deleted_laps": [x.lap_number for x in laps if x.is_deleted],
+    }
+    output["laps"] = [_lap_entry(x) for x in laps]
+    return output
+
+
 _FUNCTIONS = {
     "get_race_results": get_race_results,
     "compare_drivers": compare_drivers,
     "get_pit_strategy": get_pit_strategy,
     "get_season_summary": get_season_summary,
+    "get_laps": get_laps,
 }
 
 
