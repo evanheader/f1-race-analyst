@@ -62,6 +62,25 @@ def test_race_results_returns_race_and_ordered_results(db, monza):
     ]
 
 
+def test_race_results_list_the_seasons_races_in_round_order(db, monza, make_race):
+    make_race(season=2023, round=15, name="Singapore Grand Prix", circuit_ref="marina_bay")
+    make_race(season=2023, round=2, name="Saudi Arabian Grand Prix", circuit_ref="jeddah")
+    make_race(season=2022, round=1, name="Bahrain Grand Prix", circuit_ref="bahrain")
+
+    output = run_tool(db, "get_race_results", {"season": 2023, "race": "monza"})
+
+    assert output["season_races"] == [
+        "round 2: Saudi Arabian Grand Prix (jeddah)",
+        "round 14: Italian Grand Prix (monza)",
+        "round 15: Singapore Grand Prix (marina_bay)",
+    ]
+
+
+def test_race_results_description_mentions_the_season_race_list():
+    description = next(t for t in TOOLS if t["name"] == "get_race_results")["description"]
+    assert "season_races" in description
+
+
 def test_race_matches_circuit_ref_case_insensitively(db, monza):
     output = run_tool(db, "get_race_results", {"season": 2023, "race": "MONZA"})
 

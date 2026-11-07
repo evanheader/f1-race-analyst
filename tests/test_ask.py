@@ -136,6 +136,7 @@ def test_request_carries_model_system_prompt_tools_and_the_question(ask):
     assert call["model"] == "claude-haiku-5-5"
     assert call["system"] == analyst.SYSTEM_PROMPT
     assert "never from memory" in call["system"]
+    assert "more than one driver, team or race" in call["system"]
     assert call["tools"] == TOOLS
     assert call["max_tokens"] > 0
     assert call["messages"] == [{"role": "user", "content": "Who won?"}]  # stripped

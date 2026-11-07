@@ -40,7 +40,9 @@ TOOLS = [
             "circuit, season and round, then every driver in finishing order with position, "
             "position_text (e.g. 'R' for retired), driver name, three-letter code, team, grid "
             "slot, status (e.g. 'Finished', '+1 Lap', 'Engine') and points. Use it for "
-            "questions about who won, podiums, grid positions, retirements and points. "
+            "questions about who won, podiums, grid positions, retirements and points. The "
+            "output also lists the season's races (season_races), so you can spot other "
+            "races that may match the question. "
             "Example: season 2023, race 'monza'. " + LIMITS
         ),
         "input_schema": {
@@ -270,7 +272,12 @@ def get_race_results(db: Session, season: int, race: str) -> dict:
         }
         for position, position_text, name, code, team, grid, status, points in rows
     ]
-    return {"race": _race_info(race_row), "results": results}
+    season_races = db.scalars(select(Race).where(Race.season == season).order_by(Race.round)).all()
+    return {
+        "race": _race_info(race_row),
+        "season_races": [_race_label(r) for r in season_races],
+        "results": results,
+    }
 
 
 def compare_drivers(db: Session, season: int, race: str, driver_a: str, driver_b: str) -> dict:

@@ -16,7 +16,10 @@ SYSTEM_PROMPT = (
     "You are an F1 race analyst. Answer only from the results of the tools, never from "
     "memory. If the tools cannot answer the question, or it is not about F1 race data, say "
     "you don't know or can't help. Keep answers short and state the key fact plainly: use "
-    "the driver's full name and give numbers with their units."
+    "the driver's full name and give numbers with their units. If a name in the question "
+    "could mean more than one driver, team or race (for example two drivers with the same "
+    "surname, or two races in the same country in one season), answer for each match and "
+    "say that there are several, rather than picking one or asking which."
 )
 
 TOO_COMPLEX_ANSWER = (
