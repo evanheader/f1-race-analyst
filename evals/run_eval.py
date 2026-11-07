@@ -18,6 +18,13 @@ A question the analyst should refuse (off topic, future, no data):
 
     It passes when the answer contains a refusal phrase such as "don't know" or "cannot".
 
+Either kind of question can also have "forbidden": facts in the same format as "expected",
+where NONE may appear in the answer, or the question fails. Use it only for facts a correct
+answer would never say, e.g. "Max" in a question about Jos Verstappen.
+
+The API allows 5 questions a minute per IP. On HTTP 429 the runner waits 61 seconds and asks
+the same question again, up to 3 times.
+
 Matching ignores case and accents ("Perez" matches "Pérez") and respects word boundaries,
 so "2" does not match "12" or "2023".
 
@@ -29,6 +36,7 @@ import datetime
 import json
 import re
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
@@ -36,6 +44,8 @@ import requests
 
 REQUEST_TIMEOUT_SECONDS = 180
 ANSWER_PREVIEW_CHARS = 300
+RATE_LIMIT_WAIT_SECONDS = 61
+RATE_LIMIT_RETRIES = 3
 REFUSAL_PHRASES = [
     "don't know",
     "do not know",
@@ -47,6 +57,8 @@ REFUSAL_PHRASES = [
     "no data",
     "not available",
     "only answer",
+    "no results",
+    "not yet",
 ]
 
 
@@ -71,15 +83,35 @@ def has_expected_facts(answer: str, expected: list) -> bool:
     return True
 
 
+def has_forbidden_facts(answer: str, forbidden: list) -> bool:
+    """True if ANY forbidden item (or any alternative inside one) appears in the answer."""
+    for item in forbidden:
+        alternatives = [item] if isinstance(item, str) else item
+        if any(contains_fact(answer, alternative) for alternative in alternatives):
+            return True
+    return False
+
+
 def is_refusal(answer: str) -> bool:
     text = normalize(answer)
     return any(phrase in text for phrase in REFUSAL_PHRASES)
 
 
 def is_correct(question: dict, answer: str) -> bool:
+    if has_forbidden_facts(answer, question.get("forbidden", [])):
+        return False
     if question.get("refuse"):
         return is_refusal(answer)
     return has_expected_facts(answer, question["expected"])
+
+
+def tally_by_category(outcomes: list[tuple[str, bool]]) -> dict[str, tuple[int, int]]:
+    """Map each category (in order of first appearance) to (passed, asked)."""
+    tally: dict[str, tuple[int, int]] = {}
+    for category, passed in outcomes:
+        correct, asked = tally.get(category, (0, 0))
+        tally[category] = (correct + passed, asked + 1)
+    return tally
 
 
 def load_questions(path: Path) -> list[dict]:
@@ -88,9 +120,14 @@ def load_questions(path: Path) -> list[dict]:
 
 
 def ask(url: str, question: str) -> dict:
-    response = requests.post(
-        f"{url}/ask", json={"question": question}, timeout=REQUEST_TIMEOUT_SECONDS
-    )
+    for attempt in range(RATE_LIMIT_RETRIES + 1):
+        response = requests.post(
+            f"{url}/ask", json={"question": question}, timeout=REQUEST_TIMEOUT_SECONDS
+        )
+        if response.status_code != 429 or attempt == RATE_LIMIT_RETRIES:
+            break
+        print(f"     rate limited, waiting {RATE_LIMIT_WAIT_SECONDS}s", flush=True)
+        time.sleep(RATE_LIMIT_WAIT_SECONDS)
     response.raise_for_status()
     return response.json()
 
@@ -113,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
 
     questions = load_questions(Path(args.questions_file))
     correct = 0
+    outcomes = []
     for q in questions:
         try:
             reply = ask(args.url, q["question"])
@@ -121,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         except (requests.RequestException, ValueError, KeyError) as error:
             answer, tools_used, passed = f"request failed: {error}", [], False
         correct += passed
+        outcomes.append((q.get("category", "uncategorized"), passed))
         print(f"{'PASS' if passed else 'FAIL'} {q['id']} {q['question']}", flush=True)
         print(f"     answer: {' '.join(answer.split())[:ANSWER_PREVIEW_CHARS]}")
         print(f"     tools: {format_tools(tools_used)}")
