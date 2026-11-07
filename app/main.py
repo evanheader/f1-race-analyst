@@ -1,16 +1,37 @@
+import functools
+import os
 from typing import Annotated
 
+import anthropic
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.analyst import answer_question
+from app.database import get_db, get_read_only_db
 from app.models import Driver, Lap, PitStop, Race, Result, SprintResult
-from app.schemas import DriverStatsOut, LapOut, PitStopOut, RaceOut, ResultOut
+from app.schemas import AskIn, AskOut, DriverStatsOut, LapOut, PitStopOut, RaceOut, ResultOut
 
 app = FastAPI(title="F1 Race Analyst")
 
 Db = Annotated[Session, Depends(get_db)]
+ReadOnlyDb = Annotated[Session, Depends(get_read_only_db)]
+
+
+@functools.cache
+def _build_client(api_key: str) -> anthropic.Anthropic:
+    return anthropic.Anthropic(api_key=api_key, timeout=30.0, max_retries=2)
+
+
+def get_anthropic_client() -> anthropic.Anthropic:
+    """The shared Anthropic client, built on first use so that nothing needs a key at import."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="The AI assistant is not configured.")
+    return _build_client(api_key)
+
+
+AnthropicClient = Annotated[anthropic.Anthropic, Depends(get_anthropic_client)]
 
 
 def get_race_or_404(db: Session, race_id: int) -> Race:
@@ -108,3 +129,13 @@ def driver_stats(driver_id: int, db: Db):
         "points": points + sprint_points,
         "average_lap_time_seconds": average_lap,
     }
+
+
+@app.post("/ask", response_model=AskOut)
+def ask(body: AskIn, db: ReadOnlyDb, client: AnthropicClient):
+    try:
+        return answer_question(client, db, body.question)
+    except anthropic.APITimeoutError:
+        raise HTTPException(status_code=504, detail="The AI assistant took too long to answer.")
+    except anthropic.APIError:
+        raise HTTPException(status_code=502, detail="The AI assistant is unavailable right now.")
