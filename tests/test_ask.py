@@ -88,8 +88,9 @@ def clock(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def fresh_limits():
+def fresh_limits(monkeypatch):
     """The limiter and the cost total are process-wide: start and leave every test clean."""
+    monkeypatch.setattr(limits, "RATE_LIMIT", 5)  # whatever the local .env says
     limits.reset()
     yield
     limits.reset()
@@ -308,6 +309,34 @@ def test_the_rate_limit_window_slides(ask, clock):
     clock.seconds = 1000.0 + 60  # the first question is now a minute old, the others are not
     assert ask(fake)[0].status_code == 200
     assert ask(fake)[0].status_code == 429
+
+
+def test_the_rate_limit_defaults_to_5(monkeypatch):
+    monkeypatch.delenv("ASK_RATE_LIMIT_PER_MINUTE", raising=False)
+
+    assert limits.read_rate_limit() == 5
+
+
+def test_the_rate_limit_is_read_from_the_environment(monkeypatch):
+    monkeypatch.setenv("ASK_RATE_LIMIT_PER_MINUTE", "12")
+
+    assert limits.read_rate_limit() == 12
+
+
+@pytest.mark.parametrize("value", ["-1", "abc", "2.5", ""])
+def test_an_invalid_rate_limit_setting_fails_loudly(monkeypatch, value):
+    monkeypatch.setenv("ASK_RATE_LIMIT_PER_MINUTE", value)
+
+    with pytest.raises(ValueError, match="ASK_RATE_LIMIT_PER_MINUTE"):
+        limits.read_rate_limit()
+
+
+def test_a_rate_limit_of_0_allows_unlimited_questions(ask, clock, monkeypatch):
+    monkeypatch.setattr(limits, "RATE_LIMIT", 0)
+    fake = FakeClient(*[text_reply("ok") for _ in range(20)])
+
+    assert all(ask(fake)[0].status_code == 200 for _ in range(20))
+    assert not limits._recent_requests  # nothing was recorded
 
 
 def test_cost_is_estimated_from_usage_at_haiku_prices(ask, monza, clock):

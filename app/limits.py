@@ -5,11 +5,30 @@ server restarts. That is fine for a single server; running several would need sh
 """
 
 import datetime
+import os
 import threading
 import time
 from collections import defaultdict, deque
 
-RATE_LIMIT = 5  # questions per client IP ...
+from dotenv import load_dotenv
+
+
+def read_rate_limit() -> int:
+    """Questions per minute per IP from ASK_RATE_LIMIT_PER_MINUTE (default 5). 0 turns it off."""
+    raw = os.environ.get("ASK_RATE_LIMIT_PER_MINUTE", "5")
+    try:
+        value = int(raw)
+    except ValueError:
+        value = -1
+    if value < 0:
+        raise ValueError(
+            f"ASK_RATE_LIMIT_PER_MINUTE must be a whole number, 0 or more. Got {raw!r}."
+        )
+    return value
+
+
+load_dotenv()
+RATE_LIMIT = read_rate_limit()  # questions per client IP ... (0 means no limit)
 RATE_WINDOW_SECONDS = 60.0  # ... per sliding window
 DAILY_COST_CAP = 1.00  # dollars per UTC day
 QUESTION_TIME_LIMIT_SECONDS = 60.0  # for all Claude calls in one question
@@ -41,6 +60,8 @@ def reset() -> None:
 
 def allow_request(ip: str) -> bool:
     """Record a question from this IP and say whether it is within the rate limit."""
+    if RATE_LIMIT == 0:
+        return True
     now = monotonic()
     with _lock:
         recent = _recent_requests[ip]

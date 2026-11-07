@@ -66,6 +66,7 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 
 - 5 lookups per question. It stops a loop that never ends. Over the limit, the answer says the question was too complex. Every answer also returns `tools_used`, so a reader can see where it came from.
 - 5 questions per minute per visitor, $1 per UTC day, and 60 seconds per question. The cap is checked before a question starts, so the last question of the day can finish past $1.
+- The per-minute limit is set by `ASK_RATE_LIMIT_PER_MINUTE` (default 5, 0 is off, anything else invalid stops startup). There is no exemption for localhost: behind a reverse proxy every visitor would look like localhost.
 - The counters live in the process's memory. They are per process and reset when the server restarts. That is fine for one server.
 - Retries are off for the Claude calls, so one call can't outlast the 60 second limit. The cost: a transient API error gives 502 straight away.
 - Cost is estimated from documented per-token prices for claude-haiku-5-5. A call that times out is not counted, so the estimate can be low.

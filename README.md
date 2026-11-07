@@ -67,6 +67,8 @@ Everything above works without this. Only `POST /ask` needs a key.
 
    Without a key, `/ask` returns 503. The rest of the API is not affected.
 
+   The 5 questions per minute limit gets in the way of eval runs. For local development only, set `ASK_RATE_LIMIT_PER_MINUTE=0` in `.env` and run `docker compose up -d` again to switch it off.
+
 ## AI analyst
 
 `POST /ask` sends your question to Claude (`claude-haiku-5-5`). Claude looks things up with four tools, then answers from what they return. The tools only read from the database.
@@ -80,7 +82,7 @@ Everything above works without this. Only `POST /ask` needs a key.
 
 Limits on `/ask`:
 
-- 5 questions per minute per visitor (429 after that).
+- 5 questions per minute per visitor (429 after that). `ASK_RATE_LIMIT_PER_MINUTE=0` switches it off for local development; never on a public server.
 - $1 per UTC day of estimated spend, then 503 until the next day.
 - 60 seconds per question (504 if it takes longer).
 - 5 lookups per question.
