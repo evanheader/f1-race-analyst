@@ -333,6 +333,7 @@ def test_every_tool_definition_matches_a_function_and_its_required_inputs(db):
         "get_race_results": ["season", "race"],
         "compare_drivers": ["season", "race", "driver_a", "driver_b"],
         "get_pit_strategy": ["season", "race", "driver"],
+        "get_season_summary": ["season"],
     }
 
     assert {tool["name"] for tool in TOOLS} == set(required_by_tool)
@@ -391,3 +392,203 @@ def test_seconds_are_rounded_to_three_decimals(db, monza, make_lap):
     )
 
     assert output["drivers"][0]["average_clean_lap_seconds"] == 90.333
+
+
+# get_season_summary
+
+
+@pytest.fixture
+def season_2024(make_race, make_driver, make_result, make_sprint_result):
+    """2024 rounds 1-3 plus a 2023 round. Verstappen: 1st, 2nd, withdrew (and won in 2023).
+    Perez: 3rd, retired, 1st. Norris (McLaren): 2nd, 1st. Piastri (McLaren): 5th, disqualified."""
+    r1 = make_race(season=2024, round=1, name="Bahrain Grand Prix")
+    r2 = make_race(season=2024, round=2, name="Chinese Grand Prix")
+    r3 = make_race(season=2024, round=3, name="Japanese Grand Prix")
+    old = make_race(season=2023, round=1, name="Bahrain Grand Prix")
+    ver = make_driver("max_verstappen", "VER", "Max Verstappen")
+    per = make_driver("perez", "PER", "Sergio Pérez")
+    nor = make_driver("norris", "NOR", "Lando Norris")
+    pia = make_driver("piastri", "PIA", "Oscar Piastri")
+    make_result(r1, ver, position=1, points=25, team="Red Bull")
+    make_result(r1, per, position=3, points=15, team="Red Bull")
+    make_result(r1, nor, position=2, points=18, team="McLaren")
+    make_result(r1, pia, position=5, points=10, team="McLaren")
+    make_result(r2, ver, position=2, points=18, team="Red Bull")
+    make_result(r2, per, position=2, position_text="R", points=0, team="Red Bull")
+    make_result(r2, nor, position=1, points=25, team="McLaren")
+    make_result(r2, pia, position=1, position_text="D", points=0, team="McLaren")
+    make_result(r3, ver, position=20, position_text="W", points=0, team="Red Bull")
+    make_result(r3, per, position=1, points=25, team="Red Bull")
+    make_result(old, ver, position=1, points=25, team="Red Bull")
+    make_sprint_result(r2, ver, position=1, points=8, team="Red Bull")
+    make_sprint_result(r2, nor, position=2, points=7, team="McLaren")
+
+
+def test_driver_season_totals(db, season_2024):
+    output = run_tool(db, "get_season_summary", {"season": 2024, "driver": "verstappen"})
+
+    # The withdrawal (W) is not a start and the 2023 win is another season.
+    assert output["driver"] == "Max Verstappen"
+    assert output["season"] == 2024
+    assert output["races"] == 2
+    assert output["wins"] == 1
+    assert output["podiums"] == 2
+    assert output["retirements"] == 0
+    # Sprint points go into sprint_points and total_points only.
+    assert output["race_points"] == 43.0
+    assert output["sprint_points"] == 8.0
+    assert output["total_points"] == 51.0
+
+
+def test_driver_season_lists_races_in_round_order_with_team(db, season_2024):
+    output = run_tool(db, "get_season_summary", {"season": 2024, "driver": "VER"})
+
+    assert output["results"] == [
+        {
+            "round": 1,
+            "race": "Bahrain Grand Prix",
+            "team": "Red Bull",
+            "position_text": "1",
+            "points": 25.0,
+        },
+        {
+            "round": 2,
+            "race": "Chinese Grand Prix",
+            "team": "Red Bull",
+            "position_text": "2",
+            "points": 18.0,
+        },
+        {
+            "round": 3,
+            "race": "Japanese Grand Prix",
+            "team": "Red Bull",
+            "position_text": "W",
+            "points": 0.0,
+        },
+    ]
+
+
+def test_driver_season_counts_retirements_and_has_no_sprint_points_without_sprints(db, season_2024):
+    output = run_tool(db, "get_season_summary", {"season": 2024, "driver": "perez"})
+
+    assert output["driver"] == "Sergio Pérez"
+    assert output["races"] == 3
+    assert output["wins"] == 1
+    assert output["podiums"] == 2
+    assert output["retirements"] == 1
+    assert output["sprint_points"] == 0.0
+    assert output["total_points"] == 40.0
+
+
+def test_team_totals_count_each_car(db, season_2024):
+    output = run_tool(db, "get_season_summary", {"season": 2024, "team": "McLaren"})
+
+    # Round 1: 2nd and 5th. Round 2: 1st and a disqualified car, which is no win or podium.
+    assert output["team"] == "McLaren"
+    assert output["races"] == 4
+    assert output["wins"] == 1
+    assert output["podiums"] == 2
+    assert output["race_points"] == 53.0
+    assert output["sprint_points"] == 7.0
+    assert output["total_points"] == 60.0
+
+
+def test_team_one_two_finish_is_one_win_and_two_podiums(db, make_race, make_driver, make_result):
+    race = make_race(season=2022, round=1, name="Bahrain Grand Prix")
+    make_result(race, make_driver("a", "AAA", "Driver A"), position=1, team="Ferrari")
+    make_result(race, make_driver("b", "BBB", "Driver B"), position=2, team="Ferrari")
+
+    output = run_tool(db, "get_season_summary", {"season": 2022, "team": "ferrari"})
+
+    assert (output["wins"], output["podiums"], output["races"]) == (1, 2, 2)
+    assert [(r["driver"], r["position_text"]) for r in output["results"]] == [
+        ("Driver A", "1"),
+        ("Driver B", "2"),
+    ]
+
+
+def test_description_says_team_totals_count_each_car():
+    tool = next(t for t in TOOLS if t["name"] == "get_season_summary")
+
+    assert "1-2 finish is 1 win and 2 podiums" in tool["description"]
+
+
+def test_season_driver_match_ignores_accents_and_other_seasons(
+    db, season_2024, make_driver, make_race, make_result
+):
+    # A driver named Perez who raced only in 2023 must not make "perez" ambiguous in 2024.
+    make_result(make_race(season=2023, round=2), make_driver("other", "OTH", "Pedro Perez"))
+
+    accented = run_tool(db, "get_season_summary", {"season": 2024, "driver": "Sergio Perez"})
+    shared = run_tool(db, "get_season_summary", {"season": 2024, "driver": "perez"})
+
+    assert accented["driver"] == "Sergio Pérez"
+    assert shared["races"] == 3
+
+
+def test_season_driver_not_found_lists_that_seasons_drivers(db, season_2024):
+    output = run_tool(db, "get_season_summary", {"season": 2024, "driver": "hamilton"})
+
+    assert "No driver matching 'hamilton' in 2024" in output["error"]
+    assert "Lando Norris (NOR)" in output["error"]
+
+
+def test_season_driver_ambiguous(db, season_2024, make_driver, make_race, make_result):
+    make_result(make_race(season=2024, round=9), make_driver("jos", "JVE", "Jos Verstappen"))
+
+    output = run_tool(db, "get_season_summary", {"season": 2024, "driver": "verstappen"})
+
+    assert "More than one driver" in output["error"]
+    assert "Jos Verstappen (JVE)" in output["error"]
+
+
+def test_team_match_ignores_case_and_accents(db, make_race, make_driver, make_result):
+    make_result(make_race(season=2024, round=1), make_driver(), team="Alpine Rénault")
+
+    output = run_tool(db, "get_season_summary", {"season": 2024, "team": "RENAULT"})
+
+    assert output["team"] == "Alpine Rénault"
+
+
+def test_exact_team_match_wins_over_substring(db, make_race, make_driver, make_result):
+    race = make_race(season=2024, round=1)
+    make_result(race, make_driver("a", "AAA", "Driver A"), team="Red Bull")
+    make_result(race, make_driver("b", "BBB", "Driver B"), position=2, team="Red Bull Racing")
+
+    output = run_tool(db, "get_season_summary", {"season": 2024, "team": "red bull"})
+
+    assert output["team"] == "Red Bull"
+    assert output["races"] == 1
+
+
+def test_team_ambiguous_lists_that_seasons_teams(db, make_race, make_driver, make_result):
+    race = make_race(season=2024, round=1)
+    make_result(race, make_driver("a", "AAA", "Driver A"), team="Red Bull Racing")
+    make_result(race, make_driver("b", "BBB", "Driver B"), position=2, team="Red Bull Honda")
+    make_result(race, make_driver("c", "CCC", "Driver C"), position=3, team="Ferrari")
+
+    output = run_tool(db, "get_season_summary", {"season": 2024, "team": "red bull"})
+
+    assert "More than one team matching 'red bull' in 2024" in output["error"]
+    assert "Ferrari, Red Bull Honda, Red Bull Racing" in output["error"]
+
+
+def test_team_not_found_lists_that_seasons_teams(db, season_2024):
+    output = run_tool(db, "get_season_summary", {"season": 2024, "team": "Ferrari"})
+
+    assert "No team matching 'Ferrari' in 2024" in output["error"]
+    assert "McLaren, Red Bull" in output["error"]
+
+
+def test_season_summary_needs_exactly_one_of_driver_or_team(db, season_2024):
+    for tool_input in ({"season": 2024}, {"season": 2024, "driver": "ver", "team": "Red Bull"}):
+        output = run_tool(db, "get_season_summary", tool_input)
+
+        assert output["error"] == "Give exactly one of driver or team."
+
+
+def test_season_without_races_says_so(db):
+    for who in ({"driver": "verstappen"}, {"team": "Red Bull"}):
+        output = run_tool(db, "get_season_summary", {"season": 1999, **who})
+
+        assert "no results loaded for that season" in output["error"]

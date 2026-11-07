@@ -122,9 +122,8 @@ def main(argv: list[str] | None = None) -> int:
             answer, tools_used, passed = f"request failed: {error}", [], False
         correct += passed
         print(f"{'PASS' if passed else 'FAIL'} {q['id']} {q['question']}", flush=True)
-        if not passed:
-            print(f"     answer: {' '.join(answer.split())[:ANSWER_PREVIEW_CHARS]}")
-            print(f"     tools: {format_tools(tools_used)}")
+        print(f"     answer: {' '.join(answer.split())[:ANSWER_PREVIEW_CHARS]}")
+        print(f"     tools: {format_tools(tools_used)}")
 
     percent = round(100 * correct / len(questions)) if questions else 0
     print(f"\n{correct} of {len(questions)} correct ({percent}%)")
