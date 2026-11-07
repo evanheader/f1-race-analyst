@@ -66,6 +66,12 @@ def test_refusal_detection_accepts_no_results_and_not_yet():
     assert is_refusal("That race has not yet been run.")
 
 
+def test_refusal_detection_accepts_include_and_recorded_wording():
+    assert is_refusal("The data doesn't include that.")
+    assert is_refusal("The data does not include that.")
+    assert is_refusal("Stationary time is not recorded before 2024.")
+
+
 def test_is_correct_uses_refusal_for_refuse_questions_and_facts_otherwise():
     refusal = {"refuse": True}
     assert is_correct(refusal, "I cannot answer that.")
@@ -125,6 +131,23 @@ class FakeResponse:
 
     def json(self):
         return self.body
+
+
+def test_main_prints_the_per_category_tally_after_the_total(monkeypatch, tmp_path, capsys):
+    rows = [
+        {"id": "a", "category": "trap", "question": "Q1", "expected": ["ok"]},
+        {"id": "b", "category": "alias", "question": "Q2", "expected": ["nope"]},
+        {"id": "c", "category": "trap", "question": "Q3", "expected": ["ok"]},
+    ]
+    questions = tmp_path / "q.jsonl"
+    questions.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    fake_post(monkeypatch, [200, 200, 200])
+
+    run_eval.main([str(questions)])
+
+    lines = capsys.readouterr().out.splitlines()
+    total = lines.index("2 of 3 correct (67%)")
+    assert lines[total + 1 : total + 3] == ["  trap 2/2", "  alias 0/1"]
 
 
 def fake_post(monkeypatch, statuses):

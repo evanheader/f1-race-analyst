@@ -59,6 +59,9 @@ REFUSAL_PHRASES = [
     "only answer",
     "no results",
     "not yet",
+    "doesn't include",
+    "does not include",
+    "not recorded",
 ]
 
 
@@ -166,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
 
     percent = round(100 * correct / len(questions)) if questions else 0
     print(f"\n{correct} of {len(questions)} correct ({percent}%)")
+    for category, (passed, asked) in tally_by_category(outcomes).items():
+        print(f"  {category} {passed}/{asked}")
     print(f"model: {MODEL}  date: {datetime.date.today().isoformat()}")
     return 0
 
