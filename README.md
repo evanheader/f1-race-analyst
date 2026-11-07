@@ -71,7 +71,7 @@ Everything above works without this. Only `POST /ask` needs a key.
 
 ## AI analyst
 
-`POST /ask` sends your question to Claude (`claude-haiku-5-5`). Claude looks things up with four tools, then answers from what they return. The tools only read from the database.
+`POST /ask` sends your question to Claude (`claude-haiku-5-5`). Claude looks things up with five tools, then answers from what they return. The tools only read from the database.
 
 | Tool | What it does |
 |---|---|
@@ -79,6 +79,9 @@ Everything above works without this. Only `POST /ask` needs a key.
 | `compare_drivers` | Two drivers in one race: result, average and fastest clean lap, pit stops |
 | `get_pit_strategy` | One driver's tire stints and pit stops in a race |
 | `get_season_summary` | One driver's or team's season totals: wins, podiums, points, retirements |
+| `get_laps` | A driver's laps with their fastest clean lap and deleted laps, or the running order at the end of a lap |
+
+If a name could mean more than one driver, team or race (two Schumachers, two races in Spain), the analyst answers for every match.
 
 Limits on `/ask`:
 
@@ -109,6 +112,41 @@ What the numbers do and do not show:
 - The grader checks that facts appear, not who is named as ahead. Comparison answers were also read by hand, and all were correct.
 - 100% on the practice set suggests the questions are on the easy side. That is why the hidden score matters.
 - Hidden set: no misses. One answer was clumsy: for Piastri's Hungarian GP strategy it wrote "a one-stop... actually a two-stop strategy" before listing the right stints. The grader passed it.
+
+### Hard set
+
+The first set scored 25/25, which is too easy to tell a good change from a bad one. `evals/hard.jsonl` has 30 harder questions in 7 categories, plus 6 hidden ones. Each question has a `why_hard` note.
+
+| Category | What it tests | Example |
+|---|---|---|
+| `trap` | Data that differs from common memory, and false premises | "Why was Hamilton disqualified from the 2024 Belgian Grand Prix?" (Russell was) |
+| `ambiguous` | A name that fits more than one driver or race | "Who won at Silverstone in 2020?" (two races, two winners) |
+| `multi_hop` | One lookup feeds the next | "What tire did the winner of the 2023 Italian Grand Prix start on?" |
+| `aggregation` | Arithmetic over results | "Which team scored the most points at the 2023 Belgian Grand Prix, and how many?" |
+| `alias` | Nicknames and team names that differ from the database | "How many podiums did Kimi have in 2025?" |
+| `capability` | Facts in the database that the tools did not return at first | "Who was leading the 2024 São Paulo Grand Prix at the end of lap 35?" |
+| `boundary` | Questions the analyst should decline | "Who won the 2026 Mexico City Grand Prix?" (no results loaded yet) |
+
+The grader gained two things. A question can list `forbidden` facts that must not appear in the answer. The run prints a score for each category as well as the total.
+
+To run it, start the API with a key, then run `uv run python evals/run_eval.py evals/hard.jsonl`. Set `ASK_RATE_LIMIT_PER_MINUTE=0` in `.env` to avoid waiting on the rate limit locally. Without that, the runner waits 61 seconds and asks again.
+
+All runs used claude-haiku-5-5 on 2026-11-07.
+
+| Run | What changed | Hard set (run 1 / run 2) | Original set |
+|---|---|---|---|
+| 1 | Baseline (four tools) | 24/30 / 25/30 | 25/25 |
+| 2 | Added `get_laps` | 28/30 / 28/30 | 25/25 |
+| 3 | Answer every reading of an ambiguous name; race results list the season's races. Grader: more refusal wording, per-category scores | 30/30 / 30/30 | 25/25 |
+| 4 | An exact driver code or name wins over a partial name ("VER" also matched Oliver Bearman) | 29/30 (one run) | 25/25 |
+| Hidden | 6 questions written alongside the set and kept from tuning, scored once at the end | 6/6 | |
+
+What the numbers do and do not show:
+
+- The baseline showed two real weaknesses: missing lap data (0/4) and ambiguous names (1-2/3). Traps, arithmetic and nicknames were already strong.
+- Part of run 3's gain is a grader fix. A correct refusal ("doesn't include") had failed because the phrase was not in the list.
+- Run 4's one miss is hard09 (two 2026 races in Spain). It passed in both run-3 runs and missed once in run 4, so it is run-to-run variance. It was left alone rather than tuned to that question.
+- The hidden hard set was written by the same agent that wrote the hard set, not by the developer as with the first hidden set. It guards against tuning, but it is not fully independent.
 
 ## Run the tests
 

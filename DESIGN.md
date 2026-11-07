@@ -61,6 +61,9 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 | A failed lookup returns a message listing the valid choices | The model can read it and retry, instead of guessing again |
 | Tools only run SELECTs, and `/ask` uses a session that Postgres keeps read-only | A tool bug can't change data, because the database refuses the write |
 | `get_season_summary` returns season totals from one query | "How many races did Verstappen win in 2023?" needed one lookup per race with the first three tools, which is over the limit of 5 |
+| `get_laps` returns a driver's laps, the running order at the end of a lap, or one driver's single lap | The laps table already held per-lap position, times and deleted flags, but no tool returned them, so the analyst refused "Who was leading on lap 35?". Positions are derived, and least reliable around pit stops and on a final lap, so the tool says to use `get_race_results` for final positions |
+| If a name could mean several drivers, teams or races, the analyst answers for each. Race results also list the season's races (`season_races`) | Asked about "Schumacher" at San Marino 2001, it picked Michael and treated Ralf's win as an aside. Asked about "the Grand Prix in Spain" in 2026, it found the Spanish GP and never learned of the Barcelona GP |
+| An exact driver code, driver ref or full name wins over a partial name, as it already did for races | At the 2024 São Paulo GP "VER" matched Max Verstappen by code and Oliver Bearman by name ("Oliver"), so the lookup failed as ambiguous |
 
 **Limits and cost**
 
@@ -82,6 +85,10 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 - Each answer was worked out with SQL first, and the query is stored in the question file.
 - Known weakness: the grader checks that facts appear, not what they are said about. "Verstappen was slower than Norris" would pass a question that expects "Norris". Comparison answers were read by hand to cover this. It can also reject a correct answer worded differently, as it did with "twice".
 - It runs by hand and never in CI, because it calls Claude and costs money.
+- **Hard set.** `evals/hard.jsonl` has 30 questions in 7 categories (trap, ambiguous, multi_hop, aggregation, alias, capability, boundary), added because the first set scored 25/25 and could no longer separate a good change from a bad one. 6 more questions are kept hidden and scored once at the end.
+- **Forbidden facts.** A question can list `forbidden` facts, and the answer fails if any appears. Use it only where a correct answer would never contain them, such as phrases from the system prompt in a prompt-injection test. "Max" in a question about Jos Verstappen was tried and dropped, because a correct answer can say "Jos, Max's father".
+- **Per-category scores.** The runner prints a score for each category after the total, so a change that helps one kind of question and hurts another is visible.
+- **Rate limit.** The runner waits 61 seconds and asks again on HTTP 429, up to 3 times. For local runs, `ASK_RATE_LIMIT_PER_MINUTE=0` in `.env` switches the limit off so nothing waits.
 
 ## Known limits
 
@@ -91,4 +98,6 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 - Results go back to 2000 and lap data to 2023, so career stats for drivers who started before 2000 are partial, and average lap time only covers 2023 onward.
 - The analyst answers one question at a time with no memory, and allows 5 lookups, so broad questions are turned away as too complex.
 - It only knows what the tools return: results from 2000, and lap, tire and pit data from 2023. Its refusals for older data rely on the model following its instructions.
+- Answers can vary between runs. Hard09 (two 2026 races in Spain) passed in both run-3 runs and missed once in run 4 with nothing changed for it. That is why every change is run twice, and why one miss is not tuned away.
+- Refusal scoring relies on a list of phrases, so a correct refusal in new wording can fail until the list is extended. This happened with "doesn't include".
 - The rate limit and daily spend cap are in memory. They reset on restart and would not be shared between several servers.
