@@ -199,16 +199,17 @@ def find_race(db: Session, season: int, race: str) -> Race:
 
 def _matching_drivers(drivers: list[Driver], text: str) -> list[Driver]:
     query = _plain(text.strip())
-    return [
+    exact = [
         d
         for d in drivers
         if query
         and (
             query == d.driver_ref.lower()
             or query == (d.code or "").lower()
-            or query in _plain(d.full_name)
+            or query == _plain(d.full_name)
         )
     ]
+    return exact or [d for d in drivers if query and query in _plain(d.full_name)]
 
 
 def find_driver(db: Session, race: Race, driver: str) -> Driver:

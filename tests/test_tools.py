@@ -164,6 +164,38 @@ def test_driver_matches_ref_code_or_name_substring(db, monza):
         assert output["driver"] == "Max Verstappen"
 
 
+def test_exact_driver_code_wins_over_name_substring(db, monza, make_driver, make_result):
+    # "ver" is Max's code and also sits inside "Oliver".
+    make_result(monza[0], make_driver("bearman", "BEA", "Oliver Bearman"), position=3)
+
+    output = run_tool(db, "get_pit_strategy", {"season": 2023, "race": "monza", "driver": "VER"})
+
+    assert output["driver"] == "Max Verstappen"
+
+
+def test_driver_name_substring_is_used_when_nothing_matches_exactly(
+    db, monza, make_driver, make_result
+):
+    make_result(monza[0], make_driver("bearman", "BEA", "Oliver Bearman"), position=3)
+
+    output = run_tool(db, "get_pit_strategy", {"season": 2023, "race": "monza", "driver": "bear"})
+
+    assert output["driver"] == "Oliver Bearman"
+
+
+def test_drivers_sharing_a_surname_are_still_ambiguous(db, monza, make_driver, make_result):
+    make_result(
+        monza[0], make_driver("michael_schumacher", "MSC", "Michael Schumacher"), position=3
+    )
+    make_result(monza[0], make_driver("ralf_schumacher", "RSC", "Ralf Schumacher"), position=4)
+
+    output = run_tool(
+        db, "get_pit_strategy", {"season": 2023, "race": "monza", "driver": "schumacher"}
+    )
+
+    assert "More than one driver" in output["error"]
+
+
 def test_driver_match_is_limited_to_the_races_entrants(db, monza, make_driver):
     # Jos Verstappen did not race at Monza 2023, so "verstappen" must mean Max.
     make_driver("jos_verstappen", "JVE", "Jos Verstappen")
