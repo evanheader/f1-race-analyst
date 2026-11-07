@@ -80,6 +80,33 @@ def test_race_matches_round_number_string(db, monza):
     assert output["race"]["name"] == "Italian Grand Prix"
 
 
+def test_exact_circuit_match_wins_over_name_substring(db, make_race):
+    make_race(season=2024, round=14, name="Belgian Grand Prix", circuit_ref="spa")
+    make_race(season=2024, round=10, name="Spanish Grand Prix", circuit_ref="catalunya")
+
+    output = run_tool(db, "get_race_results", {"season": 2024, "race": "spa"})
+
+    assert output["race"]["name"] == "Belgian Grand Prix"
+
+
+def test_name_substring_is_used_when_nothing_matches_exactly(db, make_race):
+    make_race(season=2024, round=10, name="Spanish Grand Prix", circuit_ref="catalunya")
+    make_race(season=2024, round=14, name="Belgian Grand Prix", circuit_ref="spa")
+
+    output = run_tool(db, "get_race_results", {"season": 2024, "race": "span"})
+
+    assert output["race"]["name"] == "Spanish Grand Prix"
+
+
+def test_whole_race_name_is_an_exact_match(db, make_race):
+    make_race(season=2024, round=1, name="British Grand Prix", circuit_ref="silverstone")
+    make_race(season=2024, round=2, name="Grand Prix", circuit_ref="elsewhere")
+
+    output = run_tool(db, "get_race_results", {"season": 2024, "race": "grand prix"})
+
+    assert output["race"]["round"] == 2
+
+
 def test_race_not_found_lists_the_seasons_races(db, monza, make_race):
     make_race(season=2023, round=15, name="Singapore Grand Prix", circuit_ref="marina_bay")
     make_race(season=2022, round=1, name="Bahrain Grand Prix", circuit_ref="bahrain")

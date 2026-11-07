@@ -154,8 +154,8 @@ def find_race(db: Session, season: int, race: str) -> Race:
         for r in races
         if (query.isdigit() and r.round == int(query))
         or query == r.circuit_ref.lower()
-        or (query and query in _plain(r.name))
-    ]
+        or query == _plain(r.name)
+    ] or [r for r in races if query and query in _plain(r.name)]
     if len(matches) == 1:
         return matches[0]
     if not matches:
