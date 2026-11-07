@@ -2,15 +2,17 @@
 
 import datetime
 import json
+import logging
 from types import SimpleNamespace
 
 import anthropic
 import httpx2 as httpx
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import InternalError, ProgrammingError
 
-from app import analyst, main
+from app import analyst, limits, main
 from app.database import get_read_only_db
 from app.main import app, get_anthropic_client
 from app.tools import TOOLS
@@ -19,23 +21,39 @@ from app.tools import TOOLS
 class FakeClient:
     """Stands in for anthropic.Anthropic: returns scripted responses, records every call."""
 
-    def __init__(self, *responses):
+    def __init__(self, *responses, after_call=None):
         self.responses = list(responses)
         self.calls = []
         self.messages = self
+        self.after_call = after_call  # runs after each call, e.g. to move the fake clock
+        self._options = {}
+
+    def with_options(self, **options):
+        self._options = options
+        return self
 
     def create(self, **kwargs):
         kwargs["messages"] = list(kwargs["messages"])  # the loop keeps appending to its list
+        kwargs.update(self._options)  # so the per-request timeout shows up in the call record
+        self._options = {}
         self.calls.append(kwargs)
+        if self.after_call:
+            self.after_call()
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
         return response
 
 
-def text_reply(words):
+def usage(input_tokens, output_tokens):
+    return SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens)
+
+
+def text_reply(words, input_tokens=100, output_tokens=20):
     return SimpleNamespace(
-        stop_reason="end_turn", content=[SimpleNamespace(type="text", text=words)]
+        stop_reason="end_turn",
+        content=[SimpleNamespace(type="text", text=words)],
+        usage=usage(input_tokens, output_tokens),
     )
 
 
@@ -43,12 +61,38 @@ def tool_block(id, name, **tool_input):
     return SimpleNamespace(type="tool_use", id=id, name=name, input=tool_input)
 
 
-def tool_reply(*blocks):
-    return SimpleNamespace(stop_reason="tool_use", content=list(blocks))
+def tool_reply(*blocks, input_tokens=100, output_tokens=20):
+    return SimpleNamespace(
+        stop_reason="tool_use", content=list(blocks), usage=usage(input_tokens, output_tokens)
+    )
 
 
-def monza_call(id):
-    return tool_reply(tool_block(id, "get_race_results", season=2023, race="monza"))
+def monza_call(id, **tokens):
+    return tool_reply(tool_block(id, "get_race_results", season=2023, race="monza"), **tokens)
+
+
+class Clock:
+    """A fake clock for the limits: .seconds is the monotonic time, .date the UTC date."""
+
+    def __init__(self):
+        self.seconds = 1000.0
+        self.date = datetime.date(2026, 11, 7)
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    fake = Clock()
+    monkeypatch.setattr(limits, "monotonic", lambda: fake.seconds)
+    monkeypatch.setattr(limits, "utc_today", lambda: fake.date)
+    return fake
+
+
+@pytest.fixture(autouse=True)
+def fresh_limits():
+    """The limiter and the cost total are process-wide: start and leave every test clean."""
+    limits.reset()
+    yield
+    limits.reset()
 
 
 @pytest.fixture
@@ -223,6 +267,152 @@ def test_api_error_gives_502_without_leaking_details(ask):
 
     assert response.status_code == 502
     assert response.json() == {"detail": "The AI assistant is unavailable right now."}
+
+
+# Safety limits
+
+
+def test_the_sixth_question_in_a_minute_gets_429_and_the_first_five_do_not(ask, clock, caplog):
+    fake = FakeClient(*[text_reply("ok") for _ in range(5)])
+    for _ in range(5):
+        response, _ = ask(fake)
+        assert response.status_code == 200
+
+    with caplog.at_level(logging.WARNING, logger="app.ask"):
+        response, _ = ask(fake)
+
+    assert response.status_code == 429
+    assert response.json() == {"detail": "Too many questions. Try again in a minute."}
+    assert len(fake.calls) == 5  # refused before any Claude call
+    assert [r.levelname for r in caplog.records if r.levelno >= logging.WARNING] == ["WARNING"]
+    assert "rate limit" in caplog.text
+
+
+def test_another_ip_is_not_affected_by_the_rate_limit(ask, clock):
+    fake = FakeClient(*[text_reply("ok") for _ in range(6)])
+    for _ in range(5):
+        ask(fake)
+    assert ask(fake)[0].status_code == 429
+
+    other = TestClient(app, client=("203.0.113.9", 50000))
+    assert other.post("/ask", json={"question": "Who won?"}).status_code == 200
+
+
+def test_the_rate_limit_window_slides(ask, clock):
+    fake = FakeClient(*[text_reply("ok") for _ in range(6)])
+    for _ in range(5):
+        ask(fake)
+        clock.seconds += 10  # the 5 questions are at t = 0, 10, 20, 30, 40
+    assert ask(fake)[0].status_code == 429  # t = 50
+
+    clock.seconds = 1000.0 + 60  # the first question is now a minute old, the others are not
+    assert ask(fake)[0].status_code == 200
+    assert ask(fake)[0].status_code == 429
+
+
+def test_cost_is_estimated_from_usage_at_haiku_prices(ask, monza, clock):
+    # $0.10 per million input tokens and $0.50 per million output tokens.
+    # Call 1: 10,000 in = $0.001 and 2,000 out = $0.001. Call 2: 4,000 in = $0.0004 and
+    # 1,000 out = $0.0005. Together $0.002 + $0.0009 = $0.0029.
+    fake = FakeClient(
+        monza_call("t1", input_tokens=10_000, output_tokens=2_000),
+        text_reply("Max Verstappen won.", input_tokens=4_000, output_tokens=1_000),
+    )
+    ask(fake)
+
+    assert limits.spent_today() == pytest.approx(0.0029)
+
+
+def test_at_or_over_the_daily_cap_gives_503_and_no_claude_call(ask, clock, caplog):
+    limits.add_cost(1.00)
+    fake = FakeClient(text_reply("ok"))
+
+    with caplog.at_level(logging.WARNING, logger="app.ask"):
+        response, _ = ask(fake)
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "The AI assistant has reached its daily limit. Try again tomorrow."
+    }
+    assert fake.calls == []
+    assert "daily cost cap" in caplog.text
+
+
+def test_a_question_that_starts_under_the_cap_may_finish_over_it(ask, clock):
+    limits.add_cost(0.99)
+    # 20,000,000 input tokens would be $2, so this one call takes the total well past $1.
+    response, _ = ask(FakeClient(text_reply("ok", input_tokens=20_000_000)))
+
+    assert response.status_code == 200
+    assert limits.spent_today() > 1.00
+    assert ask(FakeClient(text_reply("ok")))[0].status_code == 503
+
+
+def test_the_daily_total_starts_again_on_a_new_utc_date(ask, clock):
+    limits.add_cost(1.00)
+    assert ask(FakeClient(text_reply("ok")))[0].status_code == 503
+
+    clock.date += datetime.timedelta(days=1)
+    response, _ = ask(FakeClient(text_reply("ok")))
+
+    assert response.status_code == 200
+    assert limits.spent_today() == pytest.approx(0.00001 + 0.00001)  # 100 in, 20 out
+
+
+def test_each_call_gets_the_time_left_as_its_timeout(ask, monza, clock):
+    # Every call takes 25 s of the 60 s: the calls start with 60, 35 and 10 s left, and a
+    # fourth would start with none.
+    def slow():
+        clock.seconds += 25
+
+    fake = FakeClient(*[monza_call(f"t{n}") for n in range(3)], after_call=slow)
+    response, _ = ask(fake)
+
+    assert [call["timeout"] for call in fake.calls] == [60.0, 35.0, 10.0]
+    assert response.status_code == 504
+    assert response.json() == {"detail": "The AI assistant took too long to answer."}
+
+
+def test_passing_60_seconds_mid_loop_gives_504_and_no_further_call(ask, monza, clock):
+    def passes_the_deadline():
+        clock.seconds += 61
+
+    fake = FakeClient(monza_call("t1"), text_reply("never asked"), after_call=passes_the_deadline)
+    response, _ = ask(fake)
+
+    assert response.status_code == 504
+    assert len(fake.calls) == 1
+
+
+def test_one_info_log_line_per_question_with_counts_and_no_text(ask, monza, clock, caplog):
+    # 300 + 200 = 500 input tokens and 50 + 30 = 80 output tokens: $0.00005 + $0.00004.
+    fake = FakeClient(
+        monza_call("t1", input_tokens=300, output_tokens=50),
+        text_reply("Max Verstappen won.", input_tokens=200, output_tokens=30),
+    )
+    with caplog.at_level(logging.INFO, logger="app.ask"):
+        ask(fake, question="Who won Monza 2023?")
+
+    [record] = [r for r in caplog.records if r.name == "app.ask"]
+    assert record.name == "app.ask"
+    assert record.levelname == "INFO"
+    assert record.getMessage() == (
+        "ask tool_calls=1 input_tokens=500 output_tokens=80 cost=$0.000090 "
+        "total_today=$0.000090 duration=0.0s"
+    )
+    assert "Monza" not in caplog.text
+    assert "Verstappen" not in caplog.text
+
+
+def test_the_log_line_is_written_even_when_the_question_fails(ask, monza, clock, caplog):
+    def slow():
+        clock.seconds += 61
+
+    with caplog.at_level(logging.INFO, logger="app.ask"):
+        ask(FakeClient(monza_call("t1"), after_call=slow))
+
+    assert "ask tool_calls=1 " in caplog.text
+    assert "duration=61.0s" in caplog.text
 
 
 # get_read_only_db
