@@ -2,6 +2,7 @@
 
 import json
 import sys
+from contextlib import contextmanager
 from decimal import Decimal
 
 import pytest
@@ -156,6 +157,57 @@ def test_load_updates_rows_that_changed(connection, seeded):
         .where(Driver.driver_ref == "norris", Result.position == 1)
     ).scalar_one()
     assert points == Decimal("26.00")
+
+
+@pytest.fixture
+def cli(monkeypatch, connection):
+    """Run a script's main() on the test connection with the given command line."""
+
+    class FakeEngine:
+        @contextmanager
+        def begin(self):
+            with connection.begin_nested():
+                yield connection
+
+        @contextmanager
+        def connect(self):
+            yield connection
+
+    monkeypatch.setattr(export_sample, "create_engine", lambda url: FakeEngine())
+    monkeypatch.setattr(load_sample, "create_engine", lambda url: FakeEngine())
+
+    def run(module, *args):
+        monkeypatch.setattr(sys, "argv", [module.__name__, *map(str, args)])
+        module.main()
+
+    return run
+
+
+def test_command_line_round_trip(cli, connection, seeded, tmp_path, capsys):
+    path = tmp_path / "race.json"
+
+    cli(export_sample, "--season", 2025, "--round", 12, "--out", path)
+    assert "British Grand Prix 2025, 2 drivers, 2 results, 3 laps, 2 pit stops" in (
+        capsys.readouterr().out
+    )
+
+    for model in (PitStop, Lap, SprintResult, Result, Driver, Race):
+        connection.execute(delete(model))
+    cli(load_sample, "--file", path)
+
+    assert "Loaded British Grand Prix 2025." in capsys.readouterr().out
+    assert connection.execute(select(func.count()).select_from(Lap)).scalar_one() == 3
+
+
+def test_export_main_defaults_to_the_british_grand_prix(cli, seeded, tmp_path, capsys):
+    cli(export_sample, "--out", tmp_path / "race.json")
+
+    assert "British Grand Prix 2025" in capsys.readouterr().out
+
+
+def test_jsonable_rejects_types_it_does_not_know():
+    with pytest.raises(TypeError, match="set"):
+        export_sample.jsonable({1})
 
 
 def test_load_sample_main_reports_a_missing_file(monkeypatch, tmp_path):
