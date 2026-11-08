@@ -30,7 +30,7 @@ You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) runni
 
 4. Load some data. Pick one:
 
-   **Quick demo (about a minute, no internet needed).** Loads one race, the 2025 British Grand Prix: results, every lap with its tire, and every pit stop. It was a mixed-conditions race that Norris won and Hülkenberg took third in from 19th on the grid.
+   **Quick demo (a few seconds, no internet needed).** Loads one race, the 2025 British Grand Prix: results, every lap with its tire, and every pit stop. It was a mixed-conditions race that Norris won and Hülkenberg took third in from 19th on the grid.
 
    ```bash
    docker compose exec api python -m scripts.load_sample
