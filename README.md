@@ -91,6 +91,19 @@ Everything above works without this. Only `POST /ask` needs a key.
 
 If a name could mean more than one driver, team or race (two Schumachers, two races in Spain), the analyst answers for every match.
 
+Try asking (this needs the API key from the setup above). These work with the quick demo:
+
+- "Who won the 2025 British Grand Prix?"
+- "Where did Hülkenberg finish at the 2025 British Grand Prix, and where did he start?"
+- "How many pit stops did Hamilton make at Silverstone in 2025, and what tires did he use?"
+- "Who was leading the 2025 British Grand Prix at the end of lap 30?"
+
+These need the full 2025 season load:
+
+- "How many races did Verstappen win in 2025?"
+- "How many races did McLaren win in 2025?"
+- "Who made more pit stops at the 2025 Hungarian Grand Prix, Norris or Piastri?"
+
 Limits on `/ask`:
 
 - 5 questions per minute per visitor (429 after that). `ASK_RATE_LIMIT_PER_MINUTE=0` switches it off for local development; never on a public server.
@@ -102,6 +115,8 @@ Limits on `/ask`:
 ## Accuracy eval
 
 `evals/` holds 25 questions with answers worked out in SQL against the database (the query is stored beside each question). 4 of them are questions the analyst should refuse. A hidden set of 5 more questions was written separately and scored once, at the end.
+
+The questions cover seasons 2000 to 2026, so load those first, which takes a long time: `docker compose exec api python -m scripts.load_data $(seq 2000 2026)`.
 
 To run it, start the API with a key, then run `uv run python evals/run_eval.py`. It prints every answer and the tools used, then the score. It costs a little, so run it by hand. It never runs in CI.
 
