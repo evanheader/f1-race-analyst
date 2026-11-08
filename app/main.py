@@ -1,16 +1,43 @@
+import functools
+import logging
+import os
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException
+import anthropic
+from fastapi import Depends, FastAPI, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app import limits
+from app.analyst import QuestionTimeout, Run, answer_question
+from app.database import get_db, get_read_only_db
 from app.models import Driver, Lap, PitStop, Race, Result, SprintResult
-from app.schemas import DriverStatsOut, LapOut, PitStopOut, RaceOut, ResultOut
+from app.schemas import AskIn, AskOut, DriverStatsOut, LapOut, PitStopOut, RaceOut, ResultOut
+
+# uvicorn leaves the root logger unconfigured, so without this the INFO lines never show.
+logging.basicConfig(level=logging.INFO)
+ask_log = logging.getLogger("app.ask")
 
 app = FastAPI(title="F1 Race Analyst")
 
 Db = Annotated[Session, Depends(get_db)]
+ReadOnlyDb = Annotated[Session, Depends(get_read_only_db)]
+
+
+@functools.cache
+def _build_client(api_key: str) -> anthropic.Anthropic:
+    return anthropic.Anthropic(api_key=api_key, timeout=30.0, max_retries=2)
+
+
+def get_anthropic_client() -> anthropic.Anthropic:
+    """The shared Anthropic client, built on first use so that nothing needs a key at import."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="The AI assistant is not configured.")
+    return _build_client(api_key)
+
+
+AnthropicClient = Annotated[anthropic.Anthropic, Depends(get_anthropic_client)]
 
 
 def get_race_or_404(db: Session, race_id: int) -> Race:
@@ -108,3 +135,38 @@ def driver_stats(driver_id: int, db: Db):
         "points": points + sprint_points,
         "average_lap_time_seconds": average_lap,
     }
+
+
+@app.post("/ask", response_model=AskOut)
+def ask(body: AskIn, request: Request, db: ReadOnlyDb, client: AnthropicClient):
+    ip = request.client.host
+    if not limits.allow_request(ip):
+        ask_log.warning("ask refused by the rate limit: ip=%s", ip)
+        raise HTTPException(status_code=429, detail="Too many questions. Try again in a minute.")
+    if limits.spent_today() >= limits.DAILY_COST_CAP:
+        ask_log.warning("ask refused by the daily cost cap: ip=%s", ip)
+        raise HTTPException(
+            status_code=503,
+            detail="The AI assistant has reached its daily limit. Try again tomorrow.",
+        )
+
+    started = limits.monotonic()
+    run = Run(deadline=started + limits.QUESTION_TIME_LIMIT_SECONDS)
+    try:
+        return answer_question(client, db, body.question, run)
+    except anthropic.APITimeoutError, QuestionTimeout:
+        raise HTTPException(status_code=504, detail="The AI assistant took too long to answer.")
+    except anthropic.APIError:
+        raise HTTPException(status_code=502, detail="The AI assistant is unavailable right now.")
+    finally:
+        # Never the question or the answer.
+        ask_log.info(
+            "ask tool_calls=%d input_tokens=%d output_tokens=%d cost=$%.6f "
+            "total_today=$%.6f duration=%.1fs",
+            run.tool_calls,
+            run.input_tokens,
+            run.output_tokens,
+            run.cost,
+            limits.spent_today(),
+            limits.monotonic() - started,
+        )

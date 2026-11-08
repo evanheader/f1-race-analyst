@@ -5,8 +5,9 @@ the JSON as numbers (26.0) instead of text ("26.000").
 """
 
 import datetime
+from typing import Annotated
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 
 class RaceOut(BaseModel):
@@ -62,3 +63,17 @@ class DriverStatsOut(BaseModel):
     # Mean of clean laps only: laps with a time, not pit out laps, not deleted laps.
     # Null when the driver has no lap data (OpenF1 starts in 2023).
     average_lap_time_seconds: float | None
+
+
+class AskIn(BaseModel):
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+
+class ToolCallOut(BaseModel):
+    name: str
+    input: dict
+
+
+class AskOut(BaseModel):
+    answer: str
+    tools_used: list[ToolCallOut]
