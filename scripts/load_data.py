@@ -309,7 +309,7 @@ def load_race_laps(conn, race, driver_by_number: dict[int, int]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("seasons", nargs="*", type=int, default=[2023, 2024])
+    parser.add_argument("seasons", nargs="*", type=int, default=[2025])
     parser.add_argument("--round", type=int, help="load laps and pit stops for this round only")
     args = parser.parse_args()
 
