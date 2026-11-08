@@ -28,7 +28,15 @@ You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) runni
    docker compose exec api python -m scripts.create_tables
    ```
 
-4. Load the 2025 season. This takes about 5 minutes. It is safe to run again: rows are updated, not duplicated.
+4. Load some data. Pick one:
+
+   **Quick demo (about a minute, no internet needed).** Loads one race, the 2025 British Grand Prix: results, every lap with its tire, and every pit stop. It was a mixed-conditions race that Norris won and Hülkenberg took third in from 19th on the grid.
+
+   ```bash
+   docker compose exec api python -m scripts.load_sample
+   ```
+
+   **Full 2025 season.** This downloads from the data sources and takes several minutes. It is safe to run again: rows are updated, not duplicated.
 
    ```bash
    docker compose exec api python -m scripts.load_data
@@ -36,7 +44,7 @@ You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) runni
 
    If it stops with a `401` or `429`, a live F1 session or a rate limit is blocking the data source. Run the same command again later. To load other seasons, pass them: `python -m scripts.load_data 2023 2024`.
 
-5. Open <http://localhost:8000/docs> to try the API, or <http://localhost:8000/races> to see the races.
+5. Open <http://localhost:8000/docs> to try the API, or <http://localhost:8000/races> to see the races. With the quick demo, try <http://localhost:8000/races/1/results> and <http://localhost:8000/races/1/pit-stops>.
 
 To stop everything, run `docker compose down`. Your data is kept for next time.
 
