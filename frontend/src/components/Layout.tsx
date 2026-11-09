@@ -89,7 +89,10 @@ export default function Layout() {
       </main>
       <footer className="border-t border-line text-[0.8125rem] text-muted">
         <div className="mx-auto grid max-w-7xl gap-2 px-4 py-8 sm:px-10 md:grid-cols-[1fr_auto] md:gap-8">
-          <p>Unofficial fan project, not affiliated with Formula 1 or any team.</p>
+          <div className="space-y-1">
+            <p>Unofficial fan project, not affiliated with Formula 1 or any team.</p>
+            <p>How this works: race data is loaded into PostgreSQL and served by a FastAPI API. The engineer is Claude, using read-only tools over that data.</p>
+          </div>
           <p>
             Data{' '}
             <a className={link} href="https://github.com/jolpica/jolpica-f1">
