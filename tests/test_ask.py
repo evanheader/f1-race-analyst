@@ -57,6 +57,10 @@ def text_reply(words, input_tokens=100, output_tokens=20):
     )
 
 
+def cut_off_reply(*blocks):
+    return SimpleNamespace(stop_reason="max_tokens", content=list(blocks), usage=usage(100, 4096))
+
+
 def tool_block(id, name, **tool_input):
     return SimpleNamespace(type="tool_use", id=id, name=name, input=tool_input)
 
@@ -101,9 +105,9 @@ def ask(client, db):
     """Post a question with the given fake Claude. Returns (response, fake)."""
     app.dependency_overrides[get_read_only_db] = lambda: db
 
-    def run(fake, question="Who won Monza 2023?"):
+    def run(fake, question="Who won Monza 2023?", **extra):
         app.dependency_overrides[get_anthropic_client] = lambda: fake
-        return client.post("/ask", json={"question": question}), fake
+        return client.post("/ask", json={"question": question, **extra}), fake
 
     return run
 
@@ -134,7 +138,7 @@ def test_request_carries_model_system_prompt_tools_and_the_question(ask):
 
     call = fake.calls[0]
     assert call["model"] == "claude-haiku-5-5"
-    assert call["system"] == analyst.SYSTEM_PROMPT
+    assert call["system"].startswith(analyst.SYSTEM_PROMPT)
     assert "never from memory" in call["system"]
     assert "more than one driver, team or race" in call["system"]
     assert call["tools"] == TOOLS
@@ -190,15 +194,37 @@ def test_two_tool_calls_in_one_response_are_answered_in_one_message(ask, monza):
 
 
 def test_going_over_the_tool_call_limit_stops_with_the_fixed_answer(ask, monza):
-    # 5 calls are allowed. The 6th is not run and nothing more is sent to Claude.
-    response, fake = ask(FakeClient(*[monza_call(f"t{n}") for n in range(6)]))
+    # 8 calls are allowed. The 9th is not run and nothing more is sent to Claude.
+    response, fake = ask(FakeClient(*[monza_call(f"t{n}") for n in range(9)]))
 
     body = response.json()
     assert response.status_code == 200
     assert body["answer"] == analyst.TOO_COMPLEX_ANSWER
     assert "too complex" in body["answer"]
-    assert len(body["tools_used"]) == 5
-    assert len(fake.calls) == 6
+    assert len(body["tools_used"]) == 8
+    assert len(fake.calls) == 9
+
+
+def test_a_reply_cut_off_with_no_text_gives_the_fixed_answer(ask, monza):
+    # The observed bug: tool calls, then a response that hit max_tokens with no text block.
+    response, _ = ask(FakeClient(monza_call("t1"), cut_off_reply()))
+
+    assert response.json()["answer"] == analyst.CUT_OFF_ANSWER
+    assert len(response.json()["tools_used"]) == 1
+
+
+def test_an_empty_or_blank_final_reply_never_gives_a_blank_answer(ask):
+    for reply in (text_reply(""), text_reply("  \n")):
+        response, _ = ask(FakeClient(reply))
+
+        assert response.json()["answer"] == analyst.CUT_OFF_ANSWER
+
+
+def test_a_reply_cut_off_in_the_middle_of_a_sentence_says_so(ask):
+    cut = cut_off_reply(SimpleNamespace(type="text", text="Copy. Verstappen won, then"))
+    response, _ = ask(FakeClient(cut))
+
+    assert response.json()["answer"] == "Copy. Verstappen won, then (The answer was cut off.)"
 
 
 def test_a_batch_that_would_cross_the_limit_is_not_run(ask, monza):
@@ -206,10 +232,10 @@ def test_a_batch_that_would_cross_the_limit_is_not_run(ask, monza):
         tool_block("x", "get_race_results", season=2023, race="monza"),
         tool_block("y", "get_race_results", season=2023, race="monza"),
     )
-    response, _ = ask(FakeClient(*[monza_call(f"t{n}") for n in range(4)], pair))
+    response, _ = ask(FakeClient(*[monza_call(f"t{n}") for n in range(7)], pair))
 
     assert response.json()["answer"] == analyst.TOO_COMPLEX_ANSWER
-    assert len(response.json()["tools_used"]) == 4
+    assert len(response.json()["tools_used"]) == 7
 
 
 @pytest.mark.parametrize("key", [None, ""])
@@ -269,6 +295,102 @@ def test_api_error_gives_502_without_leaking_details(ask):
 
     assert response.status_code == 502
     assert response.json() == {"detail": "The AI assistant is unavailable right now."}
+
+
+# Conversation history
+
+
+def turn(question, answer):
+    return {"question": question, "answer": answer}
+
+
+def test_history_is_sent_as_plain_turns_before_the_new_question(ask):
+    history = [turn("How many wins?", "Which season?"), turn("2023", "Max Verstappen won 19.")]
+    response, fake = ask(FakeClient(text_reply("ok")), question="And Perez?", history=history)
+
+    assert response.status_code == 200
+    assert fake.calls[0]["messages"] == [
+        {"role": "user", "content": "How many wins?"},
+        {"role": "assistant", "content": "Which season?"},
+        {"role": "user", "content": "2023"},
+        {"role": "assistant", "content": "Max Verstappen won 19."},
+        {"role": "user", "content": "And Perez?"},
+    ]
+
+
+def test_history_turns_are_stripped(ask):
+    _, fake = ask(FakeClient(text_reply("ok")), history=[turn("  Who won?  ", "  Verstappen.\n")])
+
+    assert fake.calls[0]["messages"][:2] == [
+        {"role": "user", "content": "Who won?"},
+        {"role": "assistant", "content": "Verstappen."},
+    ]
+
+
+def test_no_history_still_works(ask):
+    for extra in ({}, {"history": []}):
+        response, fake = ask(FakeClient(text_reply("ok")), **extra)
+
+        assert response.status_code == 200
+        assert len(fake.calls[0]["messages"]) == 1
+
+
+def test_history_response_shape_is_unchanged(ask):
+    response, _ = ask(FakeClient(text_reply("Copy.")), history=[turn("Hi", "Hello.")])
+
+    assert response.json() == {"answer": "Copy.", "tools_used": []}
+
+
+def test_three_history_turns_are_accepted_and_four_give_422(ask):
+    assert ask(FakeClient(text_reply("ok")), history=[turn("q", "a")] * 3)[0].status_code == 200
+
+    response, fake = ask(FakeClient(), history=[turn("q", "a")] * 4)
+
+    assert response.status_code == 422
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [turn("q", "x" * 4001), turn("x" * 501, "a"), turn("", "a"), turn("q", "   ")],
+    ids=["long-answer", "long-question", "empty-question", "blank-answer"],
+)
+def test_a_bad_history_turn_gives_422(ask, bad):
+    response, fake = ask(FakeClient(), history=[bad])
+
+    assert response.status_code == 422
+    assert fake.calls == []
+
+
+def test_a_4000_character_history_answer_is_accepted(ask):
+    response, _ = ask(FakeClient(text_reply("ok")), history=[turn("q", "x" * 4000)])
+
+    assert response.status_code == 200
+
+
+def test_the_system_prompt_asks_for_a_missing_season_and_uses_earlier_turns():
+    assert "ask which season" in analyst.SYSTEM_PROMPT
+    assert "Earlier turns in the conversation are context" in analyst.SYSTEM_PROMPT
+    assert "answer the latest question" in analyst.SYSTEM_PROMPT
+    assert "it is the answer" in analyst.SYSTEM_PROMPT
+    assert "never the reply on its own" in analyst.SYSTEM_PROMPT
+
+
+def test_the_system_prompt_names_this_year_and_only_counts_drivers_who_raced(
+    ask, monza, clock
+):
+    _, fake = ask(FakeClient(text_reply("ok")))
+
+    system = fake.calls[0]["system"]
+    assert "Today is 2026-11-07." in system
+    assert "latest season in the data is 2023" in system
+    assert "2022 is 'last year'" in system
+    assert "did not race then" in system
+    assert "never ask the user to confirm a name or race" in system
+
+
+def test_the_system_prompt_has_no_dates_when_no_races_are_loaded(db):
+    assert analyst.system_prompt(db) == analyst.SYSTEM_PROMPT
 
 
 # Safety limits
@@ -427,11 +549,19 @@ def test_one_info_log_line_per_question_with_counts_and_no_text(ask, monza, cloc
     assert record.name == "app.ask"
     assert record.levelname == "INFO"
     assert record.getMessage() == (
-        "ask tool_calls=1 input_tokens=500 output_tokens=80 cost=$0.000090 "
+        "ask tool_calls=1 stop_reason=end_turn input_tokens=500 output_tokens=80 "
+        "cost=$0.000090 "
         "total_today=$0.000090 duration=0.0s"
     )
     assert "Monza" not in caplog.text
     assert "Verstappen" not in caplog.text
+
+
+def test_the_log_line_says_how_the_last_reply_ended(ask, caplog):
+    with caplog.at_level(logging.INFO, logger="app.ask"):
+        ask(FakeClient(cut_off_reply()))
+
+    assert "stop_reason=max_tokens" in caplog.text
 
 
 def test_the_log_line_is_written_even_when_the_question_fails(ask, monza, clock, caplog):
