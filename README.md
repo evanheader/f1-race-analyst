@@ -6,6 +6,8 @@ A REST API for looking up Formula 1 race results, lap times, tire stints and pit
 
 This is an unofficial fan project, not affiliated with Formula 1. Race data comes from [Jolpica](https://github.com/jolpica/jolpica-f1) and [OpenF1](https://openf1.org/).
 
+![The season page: the latest race over the season numerals, then the season's winners](docs/screenshots/season.png)
+
 ## How to run
 
 You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) running.
@@ -80,6 +82,12 @@ Everything above works without this. Only `POST /ask` needs a key.
 ## Website
 
 A React site over the API: a season page with the latest race, the season's winners and every round drawn as its circuit, a race page with a timing tower, a lap time chart (clean or raw) and a tire and pit stop strategy chart, and a page to talk to the engineer. You need [Node.js](https://nodejs.org/) 24 and the API running (see How to run).
+
+![The race page for the 2026 Singapore Grand Prix: stats, the classification with places gained and points, lap times and race strategy](docs/screenshots/race.png)
+
+![The engineer page answering who gained the most places in Singapore, with the tool it used and the chat saved in Previous chats](docs/screenshots/engineer.png)
+
+<img src="docs/screenshots/race-phone.png" alt="The race page on a phone" width="300">
 
 ```bash
 cd frontend
