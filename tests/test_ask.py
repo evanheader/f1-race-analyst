@@ -376,9 +376,7 @@ def test_the_system_prompt_asks_for_a_missing_season_and_uses_earlier_turns():
     assert "never the reply on its own" in analyst.SYSTEM_PROMPT
 
 
-def test_the_system_prompt_names_this_year_and_only_counts_drivers_who_raced(
-    ask, monza, clock
-):
+def test_the_system_prompt_names_this_year_and_only_counts_drivers_who_raced(ask, monza, clock):
     _, fake = ask(FakeClient(text_reply("ok")))
 
     system = fake.calls[0]["system"]
