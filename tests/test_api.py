@@ -35,6 +35,8 @@ def test_races_returns_every_field(client, make_race):
             "date": "2023-09-03",
             "circuit_ref": "monza",
             "openf1_session_key": 9161,
+            "winner": None,
+            "has_sprint": False,
         }
     ]
 
@@ -79,6 +81,89 @@ def test_races_season_with_no_races_is_empty(client, make_race):
 
 def test_races_rejects_non_numeric_season(client):
     assert client.get("/races", params={"season": "abc"}).status_code == 422
+
+
+def test_races_list_the_winner(client, make_race, make_driver, make_result):
+    race = make_race(season=2023, round=1)
+    make_result(race, make_driver("second", "SEC", "Second Driver"), position=2, team="Ferrari")
+    make_result(
+        race, make_driver("lando_norris", "NOR", "Lando Norris"), position=1, team="McLaren"
+    )
+
+    assert client.get("/races").json()[0]["winner"] == {
+        "driver_name": "Lando Norris",
+        "driver_code": "NOR",
+        "team": "McLaren",
+    }
+
+
+def test_races_winner_is_null_without_results_and_the_race_stays_listed(
+    client, make_race, make_driver, make_result
+):
+    played, future = make_race(round=1), make_race(round=2)
+    make_result(played, make_driver("old", None, "Old Driver"), position=1, team="Lotus")
+
+    body = client.get("/races", params={"season": 2024}).json()
+
+    assert [r["id"] for r in body] == [played.id, future.id]
+    assert body[0]["winner"] == {"driver_name": "Old Driver", "driver_code": None, "team": "Lotus"}
+    assert body[1]["winner"] is None
+
+
+def test_a_single_race_has_no_winner_field(client, make_race, make_driver, make_result):
+    race = make_race()
+    make_result(race, make_driver(), position=1)
+
+    assert "winner" not in client.get(f"/races/{race.id}").json()
+
+
+# /races/{race_id}
+
+
+def test_race_unknown_is_404(client):
+    response = client.get("/races/999999")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Race not found"}
+
+
+def test_race_returns_every_field(client, make_race):
+    race = make_race(
+        season=2025,
+        round=12,
+        name="British Grand Prix",
+        date=datetime.date(2025, 7, 6),
+        circuit_ref="silverstone",
+        openf1_session_key=9947,
+    )
+
+    response = client.get(f"/races/{race.id}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": race.id,
+        "season": 2025,
+        "round": 12,
+        "name": "British Grand Prix",
+        "date": "2025-07-06",
+        "circuit_ref": "silverstone",
+        "openf1_session_key": 9947,
+    }
+
+
+# CORS
+
+
+def test_cors_allows_the_default_origin(client):
+    response = client.get("/races", headers={"Origin": "http://localhost:5173"})
+
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_cors_does_not_allow_an_unknown_origin(client):
+    response = client.get("/races", headers={"Origin": "https://evil.example"})
+
+    assert "access-control-allow-origin" not in response.headers
 
 
 # /races/{race_id}/results
@@ -127,6 +212,44 @@ def test_results_include_driver_details(client, make_race, make_driver, make_res
             "points": 25.0,
         }
     ]
+
+
+def test_races_flag_sprint_weekends(client, make_race, make_driver, make_sprint_result):
+    sprint_weekend = make_race(round=1)
+    make_race(round=2)
+    make_sprint_result(sprint_weekend, make_driver(), position=1, points=8)
+
+    body = client.get("/races").json()
+
+    assert [r["has_sprint"] for r in body] == [True, False]
+    assert body[0]["winner"] is None  # A sprint win is not the race win.
+
+
+def test_sprint_results_list_the_sprint_in_finishing_order(
+    client, make_race, make_driver, make_result, make_sprint_result
+):
+    race = make_race()
+    nor, pia = (
+        make_driver("norris", "NOR", "Lando Norris"),
+        make_driver("piastri", "PIA", "Oscar Piastri"),
+    )
+    make_sprint_result(race, pia, team="McLaren", grid=2, position=2, points=7)
+    make_sprint_result(race, nor, team="McLaren", grid=1, position=1, points=8)
+    make_result(race, pia, position=1, points=25)
+
+    body = client.get(f"/races/{race.id}/sprint-results").json()
+
+    assert [(r["driver_code"], r["position"], r["points"]) for r in body] == [
+        ("NOR", 1, 8.0),
+        ("PIA", 2, 7.0),
+    ]
+
+
+def test_sprint_results_are_empty_without_a_sprint_and_404_for_an_unknown_race(client, make_race):
+    race = make_race()
+
+    assert client.get(f"/races/{race.id}/sprint-results").json() == []
+    assert client.get("/races/999999/sprint-results").status_code == 404
 
 
 def test_results_are_ordered_by_finishing_position(client, make_race, make_driver, make_result):

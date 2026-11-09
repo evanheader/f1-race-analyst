@@ -6,6 +6,8 @@ A REST API for looking up Formula 1 race results, lap times, tire stints and pit
 
 This is an unofficial fan project, not affiliated with Formula 1. Race data comes from [Jolpica](https://github.com/jolpica/jolpica-f1) and [OpenF1](https://openf1.org/).
 
+![The season page: the latest race over the season numerals, then the season's winners](docs/screenshots/season.png)
+
 ## How to run
 
 You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) running.
@@ -44,7 +46,7 @@ You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) runni
 
    If it stops with a `401` or `429`, a live F1 session or a rate limit is blocking the data source. Run the same command again later. To load other seasons, pass them: `python -m scripts.load_data 2023 2024`.
 
-5. Open <http://localhost:8000/docs> to try the API, or <http://localhost:8000/races> to see the races. With the quick demo, try <http://localhost:8000/races/1/results> and <http://localhost:8000/races/1/pit-stops>.
+5. Open <http://localhost:8000/docs> to try the API, or <http://localhost:8000/races> to see the races. With the quick demo, try <http://localhost:8000/races/1/results> and <http://localhost:8000/races/1/pit-stops>. On a sprint weekend, `/races/{id}/sprint-results` has the sprint classification (empty otherwise), and `/races` marks those weekends with `has_sprint`.
 
 To stop everything, run `docker compose down`. Your data is kept for next time.
 
@@ -77,9 +79,34 @@ Everything above works without this. Only `POST /ask` needs a key.
 
    The 5 questions per minute limit gets in the way of eval runs. For local development only, set `ASK_RATE_LIMIT_PER_MINUTE=0` in `.env` and run `docker compose up -d` again to switch it off.
 
+## Website
+
+A React site over the API: a season page with the latest race, the season's winners and every round drawn as its circuit, a race page with a timing tower, a lap time chart (clean or raw) and a tire and pit stop strategy chart, and a page to talk to the engineer. You need [Node.js](https://nodejs.org/) 24 and the API running (see How to run).
+
+![The race page for the 2026 Singapore Grand Prix: stats, the classification with places gained and points, lap times and race strategy](docs/screenshots/race.png)
+
+![The engineer page answering who gained the most places in Singapore, with the tool it used and the chat saved in Previous chats](docs/screenshots/engineer.png)
+
+<img src="docs/screenshots/race-phone.png" alt="The race page on a phone" width="300">
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open <http://localhost:5173>.
+
+- The site calls the API at `http://localhost:8000`. To use another address, set `VITE_API_URL` (see `frontend/.env.example`).
+- The API only accepts calls from the addresses in `CORS_ORIGINS` (default `http://localhost:5173`). If you serve the site from another address, add it there and restart the API.
+- After changing the API's response shapes, run `npm run gen:types` in `frontend/` to rebuild `src/api-types.ts`. It needs `uv`, and it does not need the API running.
+- Run the site's checks with `npm run lint`, `npm test` and `npm run build`. The tests use fake data and never call the API.
+- Fonts (Big Shoulders Display, IBM Plex Sans and IBM Plex Mono) load from Google Fonts. Driver photos for the 22 drivers on the 2026 grid load from formula1.com's image CDN (`src/data/driverPhotos.json`, matched to database names from the photos on formula1.com/en/drivers); they belong to Formula 1. Other drivers, or a photo that fails to load, get an original illustration.
+- Circuit outlines come from [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) (MIT, pinned to one commit) and flags from [flag-icons](https://github.com/lipis/flag-icons) (MIT). `npm run gen:circuits` rebuilds `src/data/circuits.json` from the dataset; a few circuits (Fuji, Buddh, Valencia, Yeongam, and the Indianapolis road course) are not in it and show a flag and name only.
+
 ## AI analyst
 
-`POST /ask` sends your question to Claude (`claude-haiku-5-5`). Claude looks things up with five tools, then answers from what they return. The tools only read from the database.
+`POST /ask` sends your question to Claude (`claude-haiku-5-5`). Claude looks things up with six tools, then answers from what they return. The tools only read from the database.
 
 | Tool | What it does |
 |---|---|
@@ -88,8 +115,13 @@ Everything above works without this. Only `POST /ask` needs a key.
 | `get_pit_strategy` | One driver's tire stints and pit stops in a race |
 | `get_season_summary` | One driver's or team's season totals: wins, podiums, points, retirements |
 | `get_laps` | A driver's laps with their fastest clean lap and deleted laps, or the running order at the end of a lap |
+| `get_championship_progression` | One driver's championship position, points and gap to the leader after every round of a season |
 
 If a name could mean more than one driver, team or race (two Schumachers, two races in Spain), the analyst answers for every match.
+
+It answers like a race engineer on team radio: "Copy. At the end of lap 30 of the 2025 British Grand Prix, Oscar Piastri (PIA) was leading, with Lando Norris (NOR) second and Lance Stroll (STR) third."
+
+It remembers the last 3 questions and answers of a conversation, sent with each question as `history`. If a question needs a season and gives none, it asks which season, and your reply answers it.
 
 Try asking (this needs the API key from the setup above). These work with the quick demo:
 
@@ -109,7 +141,8 @@ Limits on `/ask`:
 - 5 questions per minute per visitor (429 after that). `ASK_RATE_LIMIT_PER_MINUTE=0` switches it off for local development; never on a public server.
 - $1 per UTC day of estimated spend, then 503 until the next day.
 - 60 seconds per question (504 if it takes longer).
-- 5 lookups per question.
+- 8 lookups per question.
+- At most 3 earlier questions and answers in `history`.
 - F1 data questions only. Anything else should be refused.
 
 ## Accuracy eval
@@ -120,13 +153,15 @@ The questions cover seasons 2000 to 2026, so load those first, which takes a lon
 
 To run it, start the API with a key, then run `uv run python evals/run_eval.py`. It prints every answer and the tools used, then the score. It costs a little, so run it by hand. It never runs in CI.
 
-All runs used claude-haiku-5-5 on 2026-11-07.
+Runs 1 to 3 and the hidden set used claude-haiku-5-5 on 2026-11-07, runs 4 and 5 on 2026-11-08.
 
 | Run | What changed | Score (run 1 / run 2) |
 |---|---|---|
 | 1 | Baseline: three tools | 23/25 / 23/25 |
 | 2 | Added a season summary tool (season-count questions needed more than 5 lookups) | 24/25 / 25/25 |
 | 3 | Exact race names win over partial matches ("spa" also matched the Spanish GP); grader also accepts "twice" | 25/25 / 25/25 |
+| 4 | Race engineer voice (see the hard set, run 5) | 25/25 / 25/25 |
+| 5 | Conversation history and the standings tool (see the hard set, run 6) | 25/25 / 25/25 |
 | Hidden | Scored once, after tuning | 5/5 |
 
 What the numbers do and do not show:
@@ -138,7 +173,7 @@ What the numbers do and do not show:
 
 ### Hard set
 
-The first set scored 25/25, which is too easy to tell a good change from a bad one. `evals/hard.jsonl` has 30 harder questions in 7 categories, plus 6 hidden ones. Each question has a `why_hard` note.
+The first set scored 25/25, which is too easy to tell a good change from a bad one. `evals/hard.jsonl` has 31 harder questions in 7 categories, plus 6 hidden ones. Each question has a `why_hard` note.
 
 | Category | What it tests | Example |
 |---|---|---|
@@ -154,7 +189,7 @@ The grader gained two things. A question can list `forbidden` facts that must no
 
 To run it, start the API with a key, then run `uv run python evals/run_eval.py evals/hard.jsonl`. Set `ASK_RATE_LIMIT_PER_MINUTE=0` in `.env` to avoid waiting on the rate limit locally. Without that, the runner waits 61 seconds and asks again.
 
-All runs used claude-haiku-5-5 on 2026-11-07.
+Runs 1 to 4 and the hidden set used claude-haiku-5-5 on 2026-11-07, runs 5 and 6 on 2026-11-08.
 
 | Run | What changed | Hard set (run 1 / run 2) | Original set |
 |---|---|---|---|
@@ -162,6 +197,9 @@ All runs used claude-haiku-5-5 on 2026-11-07.
 | 2 | Added `get_laps` | 28/30 / 28/30 | 25/25 |
 | 3 | Answer every reading of an ambiguous name; race results list the season's races. Grader: more refusal wording, per-category scores | 30/30 / 30/30 | 25/25 |
 | 4 | An exact driver code or name wins over a partial name ("VER" also matched Oliver Bearman) | 29/30 (one run) | 25/25 |
+| 5a | Race engineer voice, first version | 25/30 / 27/30 | 25/25 / 25/25 |
+| 5 | Whole numbers, every-match rule before the tone. Grader: "P1" counts as a win in hard05, hard06 and hard08, as it already did in q09 | 29/30 / 30/30 | 25/25 / 25/25 |
+| 6 | Conversation history; ask for a missing season; `get_championship_progression`. Added hard31, a championship gap question, so the set has 31 | 30/31 / 30/31 | 25/25 / 25/25 |
 | Hidden | 6 questions written alongside the set and kept from tuning, scored once at the end | 6/6 | |
 
 What the numbers do and do not show:
@@ -169,6 +207,9 @@ What the numbers do and do not show:
 - The baseline showed two real weaknesses: missing lap data (0/4) and ambiguous names (1-2/3). Traps, arithmetic and nicknames were already strong.
 - Part of run 3's gain is a grader fix. A correct refusal ("doesn't include") had failed because the phrase was not in the list.
 - Run 4's one miss is hard09 (two 2026 races in Spain). It passed in both run-3 runs and missed once in run 4, so it is run-to-run variance. It was left alone rather than tuned to that question.
+- Run 5a lost points to the new voice. Six of its eight misses were correct answers the grader rejected: "8.0 points" where it wants "8", and "P1" for a win. The other two were hard09, missed in both runs, because "keep it short" won over "answer every match".
+- Part of run 5's score is the "P1" grader fix. Without it, run 5 scores 28/30 / 30/30 (hard06 in the first run said "P1", not "won"). The hidden sets were not rerun, because they are scored only once.
+- Run 6's miss is hard09 in both runs: it gave the Spanish GP at Madring and left out the Barcelona GP. It had passed 1 of 2 in run 5, so the longer prompt may have made it worse. It was not tuned. hard31 passed in both runs.
 - The hidden hard set was written by the same agent that wrote the hard set, not by the developer as with the first hidden set. It guards against tuning, but it is not fully independent.
 
 ## Run the tests

@@ -401,6 +401,7 @@ def test_output_is_json_serialisable(db, monza, make_lap, make_pit_stop):
         "get_laps": {"season": 2023, "race": "monza", "driver": "ver"},
         "get_laps lap": {"season": 2023, "race": "monza", "lap": 1},
         "get_laps both": {"season": 2023, "race": "monza", "driver": "ver", "lap": 1},
+        "get_championship_progression": {"season": 2023, "driver": "ver"},
     }
 
     for name, tool_input in calls.items():
@@ -416,6 +417,7 @@ def test_every_tool_definition_matches_a_function_and_its_required_inputs(db):
         "get_pit_strategy": ["season", "race", "driver"],
         "get_season_summary": ["season"],
         "get_laps": ["season", "race"],
+        "get_championship_progression": ["season", "driver"],
     }
 
     assert {tool["name"] for tool in TOOLS} == set(required_by_tool)
@@ -848,3 +850,153 @@ def test_laps_without_lap_data_returns_race_info_and_a_note(
         assert "Lap data is not available" in output["note"]
         assert "laps" not in output
         assert "running_order" not in output
+
+
+# get_championship_progression
+
+
+@pytest.fixture
+def title_fight(make_race, make_driver, make_result, make_sprint_result):
+    """2024 rounds 1-3 (round 4 has no results yet) and a 2023 round.
+    Round 1: Alpha 25 (win), Bravo 18, Charlie 15. Round 2 has a sprint (Bravo 8, Alpha 7)
+    and Charlie missing; the race gives Bravo 25 (win) and Alpha 18.
+    Round 3: Alpha 25 (win), Bravo 18, Charlie 15.
+    Totals after each round: Alpha 25, 50, 75. Bravo 18, 51, 69. Charlie 15, 15, 30."""
+    r1 = make_race(season=2024, round=1, name="Bahrain Grand Prix", date=datetime.date(2024, 3, 2))
+    r2 = make_race(season=2024, round=2, name="Chinese Grand Prix", date=datetime.date(2024, 4, 21))
+    r3 = make_race(season=2024, round=3, name="Japanese Grand Prix", date=datetime.date(2024, 5, 5))
+    make_race(season=2024, round=4, name="Australian Grand Prix")
+    old = make_race(season=2023, round=1, name="Bahrain Grand Prix")
+    alpha = make_driver("alpha", "ALP", "Anna Alpha")
+    bravo = make_driver("bravo", "BRA", "Ben Bravo")
+    charlie = make_driver("charlie", "CHA", "Cara Charlie")
+    make_result(r1, alpha, position=1, points=25)
+    make_result(r1, bravo, position=2, points=18)
+    make_result(r1, charlie, position=3, points=15)
+    make_result(r2, bravo, position=1, points=25)
+    make_result(r2, alpha, position=2, points=18)
+    make_sprint_result(r2, bravo, position=1, points=8)
+    make_sprint_result(r2, alpha, position=2, points=7)
+    make_result(r3, alpha, position=1, points=25)
+    make_result(r3, bravo, position=2, points=18)
+    make_result(r3, charlie, position=3, points=15)
+    make_result(old, bravo, position=1, points=25)
+
+
+def test_progression_gives_each_round_with_race_and_sprint_points(db, title_fight):
+    output = run_tool(db, "get_championship_progression", {"season": 2024, "driver": "bravo"})
+
+    assert output["season"] == 2024
+    assert output["driver"] == "Ben Bravo"
+    # The sprint is in round 2's 33 (25 + 8). Round 4 has no results and the 2023 win is ignored.
+    assert output["rounds"] == [
+        {
+            "round": 1,
+            "race": "Bahrain Grand Prix",
+            "date": "2024-03-02",
+            "points": 18.0,
+            "total_points": 18.0,
+            "position": 2,
+            "leader": "Anna Alpha",
+            "leader_points": 25.0,
+            "gap_to_leader": 7.0,
+        },
+        {
+            "round": 2,
+            "race": "Chinese Grand Prix",
+            "date": "2024-04-21",
+            "points": 33.0,
+            "total_points": 51.0,
+            "position": 1,
+            "leader": "Ben Bravo",
+            "leader_points": 51.0,
+            "gap_to_leader": 0.0,
+            "gap_to_second": 1.0,
+        },
+        {
+            "round": 3,
+            "race": "Japanese Grand Prix",
+            "date": "2024-05-05",
+            "points": 18.0,
+            "total_points": 69.0,
+            "position": 2,
+            "leader": "Anna Alpha",
+            "leader_points": 75.0,
+            "gap_to_leader": 6.0,
+        },
+    ]
+
+
+def test_progression_shows_a_lead_change_from_the_other_side(db, title_fight):
+    output = run_tool(db, "get_championship_progression", {"season": 2024, "driver": "ALP"})
+
+    # Alpha leads after round 1, loses the lead by 1 point in round 2, and wins it back.
+    assert [(r["position"], r["gap_to_leader"]) for r in output["rounds"]] == [
+        (1, 0.0),
+        (2, 1.0),
+        (1, 0.0),
+    ]
+    assert output["rounds"][0]["gap_to_second"] == 7.0
+    assert output["rounds"][1]["leader"] == "Ben Bravo"
+    assert output["rounds"][2]["gap_to_second"] == 6.0
+
+
+def test_progression_carries_points_over_a_round_the_driver_missed(db, title_fight):
+    output = run_tool(db, "get_championship_progression", {"season": 2024, "driver": "charlie"})
+
+    # Charlie has no result in round 2 (0 points, still 15 in total).
+    assert [(r["points"], r["total_points"], r["position"]) for r in output["rounds"]] == [
+        (15.0, 15.0, 3),
+        (0.0, 15.0, 3),
+        (15.0, 30.0, 3),
+    ]
+    assert [r["gap_to_leader"] for r in output["rounds"]] == [10.0, 36.0, 45.0]
+    assert output["rounds"][1]["leader"] == "Ben Bravo"
+
+
+def test_progression_ties_are_broken_by_wins_and_then_shared(
+    db, make_race, make_driver, make_result, make_sprint_result
+):
+    # X and Y both have 37 points: X won a race (25 + 12) and Y did not (15 + 18 + 4 sprint).
+    # Z and W also tie on 10 points with no win each, so they share 3rd.
+    r1 = make_race(season=2022, round=1)
+    r2 = make_race(season=2022, round=2)
+    x, y = make_driver("x", "XXX", "Driver X"), make_driver("y", "YYY", "Driver Y")
+    z, w = make_driver("z", "ZZZ", "Driver Z"), make_driver("w", "WWW", "Driver W")
+    make_result(r1, x, position=1, points=25)
+    make_result(r1, y, position=3, points=15)
+    make_result(r1, z, position=5, points=10)
+    make_result(r2, y, position=2, points=18)
+    make_result(r2, x, position=4, points=12)
+    make_result(r2, w, position=6, points=10)
+    make_sprint_result(r2, y, position=5, points=4)
+
+    rows = {
+        name: run_tool(db, "get_championship_progression", {"season": 2022, "driver": name})[
+            "rounds"
+        ][-1]
+        for name in ("XXX", "YYY", "ZZZ", "WWW")
+    }
+
+    assert (rows["XXX"]["position"], rows["XXX"]["gap_to_leader"]) == (1, 0.0)
+    assert rows["XXX"]["gap_to_second"] == 0.0
+    assert (rows["YYY"]["position"], rows["YYY"]["gap_to_leader"]) == (2, 0.0)
+    assert rows["YYY"]["leader"] == "Driver X"
+    assert rows["ZZZ"]["position"] == rows["WWW"]["position"] == 3
+
+
+def test_progression_unknown_driver_lists_that_seasons_drivers(db, title_fight):
+    output = run_tool(db, "get_championship_progression", {"season": 2024, "driver": "hamilton"})
+
+    assert "No driver matching 'hamilton' in 2024" in output["error"]
+    assert "Anna Alpha (ALP)" in output["error"]
+
+
+def test_progression_description_covers_lead_and_gap_questions():
+    description = next(t for t in TOOLS if t["name"] == "get_championship_progression")[
+        "description"
+    ]
+
+    assert "took the lead" in description
+    assert "gap to the leader" in description
+    assert "ranked by wins" in description

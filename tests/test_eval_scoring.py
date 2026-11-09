@@ -189,8 +189,8 @@ def test_ask_does_not_wait_when_not_rate_limited(monkeypatch):
 
 def test_hard_file_is_well_formed():
     questions = [json.loads(line) for line in HARD_FILE.read_text("utf-8").splitlines()]
-    assert len(questions) == 30
-    assert len({q["id"] for q in questions}) == 30
+    assert len(questions) == 31
+    assert len({q["id"] for q in questions}) == 31
     for q in questions:
         assert q["question"].strip() and q["why_hard"].strip()
         assert q["category"] in HARD_CATEGORIES
@@ -211,6 +211,6 @@ def test_hard_file_is_well_formed():
         "multi_hop": 5,
         "aggregation": 5,
         "alias": 3,
-        "capability": 4,
+        "capability": 5,
         "boundary": 4,
     }

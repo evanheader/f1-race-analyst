@@ -19,6 +19,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ASK_RATE_LIMIT_PER_MINUTE: ${ASK_RATE_LIMIT_PER_MINUTE:-5}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
