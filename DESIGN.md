@@ -71,7 +71,7 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 
 **Limits and cost**
 
-- 5 lookups per question. It stops a loop that never ends. Over the limit, the answer says the question was too complex. Every answer also returns `tools_used`, so a reader can see where it came from.
+- 8 lookups per question, up from 5 so that two drivers across two races fit. It stops a loop that never ends. Over the limit, the answer says the question was too complex. Every answer also returns `tools_used`, so a reader can see where it came from.
 - 5 questions per minute per visitor, $1 per UTC day, and 60 seconds per question. The cap is checked before a question starts, so the last question of the day can finish past $1.
 - The per-minute limit is set by `ASK_RATE_LIMIT_PER_MINUTE` (default 5, 0 is off, anything else invalid stops startup). There is no exemption for localhost: behind a reverse proxy every visitor would look like localhost.
 - The counters live in the process's memory. They are per process and reset when the server restarts. That is fine for one server.
@@ -126,7 +126,7 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 - `laps.position` is derived from a time series of position changes. It matched Jolpica's official lap positions on 99.8% of laps at Monza 2023 and 98.8% at Zandvoort 2024. A driver's final lap is less reliable, so use `results` for finishing order.
 - Pit stops are missing before the 2023 Spanish GP, and stationary times before the 2024 US GP, because OpenF1 doesn't have them.
 - Results go back to 2000 and lap data to 2023, so career stats for drivers who started before 2000 are partial, and average lap time only covers 2023 onward.
-- The analyst remembers only the last 3 questions and answers, and allows 5 lookups, so broad questions are turned away as too complex.
+- The analyst remembers only the last 3 questions and answers, and allows 8 lookups, so broad questions are turned away as too complex.
 - It only knows what the tools return: results from 2000, and lap, tire and pit data from 2023. Its refusals for older data rely on the model following its instructions.
 - Answers can vary between runs. Hard09 (two 2026 races in Spain) passed in both run-3 runs and missed once in run 4 with nothing changed for it. That is why every change is run twice, and why one miss is not tuned away.
 - Refusal scoring relies on a list of phrases, so a correct refusal in new wording can fail until the list is extended. This happened with "doesn't include".

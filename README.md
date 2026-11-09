@@ -133,7 +133,7 @@ Limits on `/ask`:
 - 5 questions per minute per visitor (429 after that). `ASK_RATE_LIMIT_PER_MINUTE=0` switches it off for local development; never on a public server.
 - $1 per UTC day of estimated spend, then 503 until the next day.
 - 60 seconds per question (504 if it takes longer).
-- 5 lookups per question.
+- 8 lookups per question.
 - At most 3 earlier questions and answers in `history`.
 - F1 data questions only. Anything else should be refused.
 
