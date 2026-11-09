@@ -36,6 +36,7 @@ def test_races_returns_every_field(client, make_race):
             "circuit_ref": "monza",
             "openf1_session_key": 9161,
             "winner": None,
+            "has_sprint": False,
         }
     ]
 
@@ -211,6 +212,44 @@ def test_results_include_driver_details(client, make_race, make_driver, make_res
             "points": 25.0,
         }
     ]
+
+
+def test_races_flag_sprint_weekends(client, make_race, make_driver, make_sprint_result):
+    sprint_weekend = make_race(round=1)
+    make_race(round=2)
+    make_sprint_result(sprint_weekend, make_driver(), position=1, points=8)
+
+    body = client.get("/races").json()
+
+    assert [r["has_sprint"] for r in body] == [True, False]
+    assert body[0]["winner"] is None  # A sprint win is not the race win.
+
+
+def test_sprint_results_list_the_sprint_in_finishing_order(
+    client, make_race, make_driver, make_result, make_sprint_result
+):
+    race = make_race()
+    nor, pia = (
+        make_driver("norris", "NOR", "Lando Norris"),
+        make_driver("piastri", "PIA", "Oscar Piastri"),
+    )
+    make_sprint_result(race, pia, team="McLaren", grid=2, position=2, points=7)
+    make_sprint_result(race, nor, team="McLaren", grid=1, position=1, points=8)
+    make_result(race, pia, position=1, points=25)
+
+    body = client.get(f"/races/{race.id}/sprint-results").json()
+
+    assert [(r["driver_code"], r["position"], r["points"]) for r in body] == [
+        ("NOR", 1, 8.0),
+        ("PIA", 2, 7.0),
+    ]
+
+
+def test_sprint_results_are_empty_without_a_sprint_and_404_for_an_unknown_race(client, make_race):
+    race = make_race()
+
+    assert client.get(f"/races/{race.id}/sprint-results").json() == []
+    assert client.get("/races/999999/sprint-results").status_code == 404
 
 
 def test_results_are_ordered_by_finishing_position(client, make_race, make_driver, make_result):

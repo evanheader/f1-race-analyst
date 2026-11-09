@@ -29,6 +29,8 @@ class WinnerOut(BaseModel):
 class RaceSummaryOut(RaceOut):
     # The result in position 1. Null when the race has no results.
     winner: WinnerOut | None
+    # True when the weekend had a sprint with results loaded.
+    has_sprint: bool
 
 
 class ResultOut(BaseModel):

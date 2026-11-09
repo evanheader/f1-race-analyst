@@ -6,7 +6,7 @@ from typing import Annotated
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
 from app import limits
@@ -72,7 +72,13 @@ def get_race_or_404(db: Session, race_id: int) -> Race:
 @app.get("/races", response_model=list[RaceSummaryOut])
 def list_races(db: Db, season: int | None = None):
     query = (
-        select(Race, Driver.full_name, Driver.code, Result.team)
+        select(
+            Race,
+            Driver.full_name,
+            Driver.code,
+            Result.team,
+            exists().where(SprintResult.race_id == Race.id).label("has_sprint"),
+        )
         .outerjoin(Result, (Result.race_id == Race.id) & (Result.position == 1))
         .outerjoin(Driver, Driver.id == Result.driver_id)
         .order_by(Race.season, Race.round)
@@ -85,8 +91,9 @@ def list_races(db: Db, season: int | None = None):
             "winner": None
             if team is None
             else {"driver_name": name, "driver_code": code, "team": team},
+            "has_sprint": has_sprint,
         }
-        for race, name, code, team in db.execute(query).all()
+        for race, name, code, team, has_sprint in db.execute(query).all()
     ]
 
 
@@ -95,27 +102,37 @@ def get_race(race_id: int, db: Db):
     return get_race_or_404(db, race_id)
 
 
-@app.get("/races/{race_id}/results", response_model=list[ResultOut])
-def race_results(race_id: int, db: Db):
+def _classification(db: Session, table: type[Result | SprintResult], race_id: int):
+    """One race's or one sprint's finishing order, with driver details. Both tables share columns."""
     get_race_or_404(db, race_id)
-    rows = db.execute(
+    return db.execute(
         select(
-            Result.driver_id,
+            table.driver_id,
             Driver.code.label("driver_code"),
             Driver.full_name.label("driver_name"),
-            Result.driver_number,
-            Result.team,
-            Result.grid,
-            Result.position,
-            Result.position_text,
-            Result.status,
-            Result.points,
+            table.driver_number,
+            table.team,
+            table.grid,
+            table.position,
+            table.position_text,
+            table.status,
+            table.points,
         )
-        .join(Driver, Driver.id == Result.driver_id)
-        .where(Result.race_id == race_id)
-        .order_by(Result.position)
+        .join(Driver, Driver.id == table.driver_id)
+        .where(table.race_id == race_id)
+        .order_by(table.position)
     ).all()
-    return rows
+
+
+@app.get("/races/{race_id}/results", response_model=list[ResultOut])
+def race_results(race_id: int, db: Db):
+    return _classification(db, Result, race_id)
+
+
+@app.get("/races/{race_id}/sprint-results", response_model=list[ResultOut])
+def sprint_results(race_id: int, db: Db):
+    """The sprint's finishing order. Empty for a weekend without a sprint."""
+    return _classification(db, SprintResult, race_id)
 
 
 @app.get("/races/{race_id}/laps", response_model=list[LapOut])
