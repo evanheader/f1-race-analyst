@@ -8,7 +8,7 @@ into {"error": ...} by run_tool, so the model can read the message and try again
 import unicodedata
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, literal_column, select
 from sqlalchemy.orm import Session
 
 from app.models import Driver, Lap, PitStop, Race, Result, SprintResult
@@ -153,6 +153,36 @@ TOOLS = [
                 "lap": {"type": "integer", "description": "A lap number, starting at 1."},
             },
             "required": ["season", "race"],
+        },
+    },
+    {
+        "name": "get_championship_progression",
+        "description": (
+            "Get one driver's drivers' championship standing after every round of a season. "
+            "For each round that has results, in round order, it returns the round, race "
+            "name, date, the driver's points from that round (race plus sprint), the "
+            "driver's total_points so far, their championship position after the round, and "
+            "the leader's name and points plus the gap_to_leader (0 when the driver leads; "
+            "then gap_to_second is the lead over the next driver). Use it for questions "
+            "such as when a driver took the lead, what the gap to the leader was after round "
+            "N, or when the gap dropped below some number of points. A driver who missed a "
+            "round scores 0 for it. Drivers level on points are ranked by wins so far, and "
+            "drivers still level share a position. Example: season 2024, driver 'norris'. "
+            "Season data starts in 2000."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "season": RACE_PROPERTIES["season"],
+                "driver": {
+                    "type": "string",
+                    "description": (
+                        "A driver who raced that season: surname, full name, driver ref or "
+                        "three-letter code, for example 'verstappen' or 'HAM'."
+                    ),
+                },
+            },
+            "required": ["season", "driver"],
         },
     },
 ]
@@ -377,29 +407,33 @@ def get_pit_strategy(db: Session, season: int, race: str, driver: str) -> dict:
     return output
 
 
+def find_season_driver(db: Session, season: int, driver: str) -> Driver:
+    entrants = db.scalars(
+        select(Driver)
+        .join(Result, Result.driver_id == Driver.id)
+        .join(Race, Race.id == Result.race_id)
+        .where(Race.season == season)
+        .distinct()
+        .order_by(Driver.full_name)
+    ).all()
+    matches = _matching_drivers(entrants, driver)
+    if len(matches) == 1:
+        return matches[0]
+    listing = ", ".join(f"{d.full_name} ({d.code})" for d in entrants)
+    problem = "No driver" if not matches else "More than one driver"
+    raise ToolError(
+        f"{problem} matching '{driver}' in {season}. Drivers that season: "
+        f"{listing or 'no results loaded for that season'}"
+    )
+
+
 def _season_filter(db: Session, season: int, driver: str | None, team: str | None):
     """Return who the summary is about, plus conditions for results and sprint_results."""
     if (driver is None) == (team is None):
         raise ToolError("Give exactly one of driver or team.")
     if driver is not None:
-        entrants = db.scalars(
-            select(Driver)
-            .join(Result, Result.driver_id == Driver.id)
-            .join(Race, Race.id == Result.race_id)
-            .where(Race.season == season)
-            .distinct()
-            .order_by(Driver.full_name)
-        ).all()
-        matches = _matching_drivers(entrants, driver)
-        if len(matches) == 1:
-            found = matches[0]
-            return found.full_name, Result.driver_id == found.id, SprintResult.driver_id == found.id
-        listing = ", ".join(f"{d.full_name} ({d.code})" for d in entrants)
-        problem = "No driver" if not matches else "More than one driver"
-        raise ToolError(
-            f"{problem} matching '{driver}' in {season}. Drivers that season: "
-            f"{listing or 'no results loaded for that season'}"
-        )
+        found = find_season_driver(db, season, driver)
+        return found.full_name, Result.driver_id == found.id, SprintResult.driver_id == found.id
     teams = db.scalars(
         select(Result.team)
         .join(Race, Race.id == Result.race_id)
@@ -552,12 +586,89 @@ def get_laps(
     return output
 
 
+def get_championship_progression(db: Session, season: int, driver: str) -> dict:
+    driver_row = find_season_driver(db, season, driver)
+    races = db.scalars(
+        select(Race)
+        .where(Race.season == season, Race.id.in_(select(Result.race_id)))
+        .order_by(Race.round)
+    ).all()
+    # Race and sprint points of every driver, with 1 for a race win, in one query.
+    won = case((Result.position_text == "1", 1), else_=0)
+    scored = (
+        select(Result.race_id, Result.driver_id, Result.points, won.label("win"))
+        .union_all(
+            select(
+                SprintResult.race_id,
+                SprintResult.driver_id,
+                SprintResult.points,
+                literal_column("0"),
+            )
+        )
+        .subquery()
+    )
+    rows = db.execute(
+        select(
+            scored.c.race_id,
+            Driver.full_name,
+            Driver.id,
+            func.sum(scored.c.points),
+            func.sum(scored.c.win),
+        )
+        .join(Driver, Driver.id == scored.c.driver_id)
+        .join(Race, Race.id == scored.c.race_id)
+        .where(Race.season == season)
+        .group_by(scored.c.race_id, Driver.id, Driver.full_name)
+    ).all()
+
+    total, wins, names = {}, {}, {}
+    progression = []
+    for race in races:
+        round_points = 0
+        for race_id, name, driver_id, points, win in rows:
+            if race_id == race.id:
+                names[driver_id] = name
+                total[driver_id] = total.get(driver_id, 0) + points
+                wins[driver_id] = wins.get(driver_id, 0) + win
+                if driver_id == driver_row.id:
+                    round_points = points
+        # Most points first, then most wins, then name so that the order is stable.
+        standings = sorted(total, key=lambda d: (-total[d], -wins[d], names[d]))
+        mine = total.get(driver_row.id, 0)
+        position = 1 + sum(
+            1 for d in total if (total[d], wins[d]) > (mine, wins.get(driver_row.id, 0))
+        )
+        entry = {
+            "round": race.round,
+            "race": race.name,
+            "date": race.date.isoformat(),
+            "points": _number(round_points),
+            "total_points": _number(mine),
+            "position": position,
+        }
+        if position == 1:
+            others = [d for d in standings if d != driver_row.id]
+            entry["leader"] = driver_row.full_name
+            entry["leader_points"] = _number(mine)
+            entry["gap_to_leader"] = 0
+            if others:
+                entry["gap_to_second"] = _number(mine - total[others[0]])
+        else:
+            leader = standings[0]
+            entry["leader"] = names[leader]
+            entry["leader_points"] = _number(total[leader])
+            entry["gap_to_leader"] = _number(total[leader] - mine)
+        progression.append(entry)
+    return {"season": season, "driver": driver_row.full_name, "rounds": progression}
+
+
 _FUNCTIONS = {
     "get_race_results": get_race_results,
     "compare_drivers": compare_drivers,
     "get_pit_strategy": get_pit_strategy,
     "get_season_summary": get_season_summary,
     "get_laps": get_laps,
+    "get_championship_progression": get_championship_progression,
 }
 
 

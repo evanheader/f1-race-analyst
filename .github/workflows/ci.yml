@@ -31,3 +31,19 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pytest --cov=app --cov=scripts --cov-report=term-missing --cov-fail-under=95
       - run: docker build -t f1-race-analyst .
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build

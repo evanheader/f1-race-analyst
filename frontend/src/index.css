@@ -1,0 +1,345 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/archivo/wdth.css';
+@import '@fontsource-variable/archivo/wdth-italic.css';
+
+/*
+ * The theme's colors are plain CSS variables, set on <html> by applyTheme().
+ * The values here are Red Bull Racing, the default, so the first paint is right before the script runs.
+ * Ink and muted are fixed: themes.test.ts checks they read on every theme's bg and surface.
+ */
+:root {
+  --bg: #0a0f1d;
+  --surface: #111a2d;
+  --team: #2b5aa0;
+  --second: #ffc906;
+  --accent: #2f62b0;
+  --accent-text: #8eb2ee;
+  --on-accent: #ffffff;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: color-mix(in srgb, var(--surface) 92%, white);
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-line-strong: rgb(255 255 255 / 0.16);
+  --color-ink: #eef2f8;
+  --color-muted: #9aa6bc;
+  --color-team: var(--team);
+  --color-second: var(--second);
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-on-accent: var(--on-accent);
+  --color-good: #4ade80;
+  --color-bad: #ff8a8a;
+  --font-sans: 'Archivo Variable', system-ui, sans-serif;
+  /* Radius follows hierarchy: the race header, then cards and panels, then controls. Chips are pills. */
+  --radius-hero: 1.5rem;
+  --radius-card: 1rem;
+  --radius-control: 0.625rem;
+  --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@layer base {
+  html {
+    background: var(--bg);
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(70rem 32rem at 12% -8rem, color-mix(in srgb, var(--team) 30%, transparent), transparent 70%),
+      var(--bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.55;
+    font-variant-numeric: tabular-nums;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--team) 60%, transparent);
+  }
+}
+
+/*
+ * Type: one family, Archivo, used at three widths. Display is extra-wide, heavy and slanted, like
+ * lettering on a car. Body is normal width. Numbers in tables are narrow, so columns stay tight.
+ * Scale (major third): 13, 14, 16, 20, 25, 31, 39, and a fluid hero size.
+ */
+@layer components {
+  .display {
+    font-stretch: 125%;
+    font-weight: 800;
+    font-style: italic;
+    font-size: clamp(2.25rem, 6.5vw, 4rem);
+    line-height: 0.95;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+  .title {
+    font-stretch: 118%;
+    font-weight: 750;
+    font-style: italic;
+    font-size: 1.5625rem;
+    line-height: 1.05;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  .heading {
+    font-stretch: 112%;
+    font-weight: 700;
+    font-size: 1.25rem;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+  .num {
+    font-stretch: 85%;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .label {
+    font-size: 0.8125rem;
+    color: var(--color-muted);
+  }
+
+  /* Panels: a raised sheet with a lit top edge and a soft drop shadow. */
+  .panel {
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, white), var(--surface) 3rem);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.05),
+      0 18px 40px -24px rgb(0 0 0 / 0.75);
+  }
+
+  /*
+   * Team shading: the deep team color (set inline as --c) fading into the panel, with speed streaks
+   * on the right, after the 2026 team cards. Text sits on the left, where the color is darkest.
+   */
+  .team-shade {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background: linear-gradient(
+      105deg,
+      color-mix(in srgb, var(--c) 62%, black) 0%,
+      color-mix(in srgb, var(--c) 40%, var(--bg)) 52%,
+      color-mix(in srgb, var(--c) 14%, var(--surface)) 100%
+    );
+  }
+  .team-shade::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: repeating-linear-gradient(180deg, rgb(255 255 255 / 0.07) 0 1px, transparent 1px 6px);
+    mask-image:
+      linear-gradient(90deg, transparent 30%, black 95%),
+      repeating-linear-gradient(90deg, black 0 3.5rem, transparent 3.5rem 4.25rem, black 4.25rem 5rem, transparent 5rem 6.5rem);
+    mask-composite: intersect;
+  }
+  /* A soft light from the top right, like a studio light on a car. */
+  .team-shade::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(40rem 18rem at 100% 0%, rgb(255 255 255 / 0.07), transparent 60%);
+    pointer-events: none;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.5rem;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-control);
+    background: rgb(255 255 255 / 0.04);
+    color: var(--color-ink);
+    padding: 0.4rem 0.9rem;
+    font-size: 0.9375rem;
+    font-weight: 550;
+    cursor: pointer;
+    text-decoration: none;
+    transition:
+      background-color 120ms var(--ease-snap),
+      border-color 120ms var(--ease-snap),
+      transform 120ms var(--ease-snap);
+  }
+  .btn:hover:not(:disabled) {
+    background: rgb(255 255 255 / 0.08);
+    border-color: rgb(255 255 255 / 0.24);
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    border-color: transparent;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 650;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.2),
+      0 6px 18px -8px color-mix(in srgb, var(--accent) 80%, transparent);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 86%, white);
+    border-color: transparent;
+  }
+
+  /* Two-way switch, such as Clean / Raw on the lap chart. */
+  .segmented {
+    display: inline-flex;
+    padding: 3px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.3);
+    border: 1px solid var(--color-line);
+  }
+  .segmented button {
+    border-radius: 999px;
+    padding: 0.25rem 0.85rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-muted);
+    transition:
+      background-color 120ms var(--ease-snap),
+      color 120ms var(--ease-snap);
+  }
+  .segmented button[aria-pressed='true'] {
+    background: var(--color-raised);
+    color: var(--color-ink);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+  .timing {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .timing th {
+    padding: 0.55rem 0.75rem;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--color-line);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-muted);
+  }
+  .timing td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .timing tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .flag {
+    display: inline-block;
+    width: 1.5rem;
+    height: 1.125rem;
+    object-fit: cover;
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.2);
+  }
+
+  .circuit {
+    overflow: visible;
+  }
+
+  /* The race card's one link covers the whole card. */
+  .card-link::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .card-link:focus-visible {
+    outline: none;
+  }
+  .card-link:focus-visible::after {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 2px;
+  }
+  .lift {
+    transition:
+      transform 160ms var(--ease-snap),
+      box-shadow 160ms var(--ease-snap),
+      filter 160ms var(--ease-snap);
+  }
+  .lift:hover {
+    transform: translateY(-3px);
+    filter: brightness(1.12);
+    box-shadow: 0 22px 44px -22px rgb(0 0 0 / 0.9);
+  }
+  .lift:active {
+    transform: translateY(-1px) scale(0.99);
+  }
+
+  .listbox {
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+
+  /* Skeleton blocks while data loads, so the layout does not jump. */
+  .skeleton {
+    border-radius: var(--radius-card);
+    background: linear-gradient(90deg, rgb(255 255 255 / 0.04), rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.04));
+    background-size: 200% 100%;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton {
+    animation: shimmer 1.4s linear infinite;
+  }
+  /* The one orchestrated moment: the circuit on the race page draws itself once. */
+  .circuit-draw path {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: draw-circuit 1.8s cubic-bezier(0.45, 0, 0.2, 1) 0.1s forwards;
+  }
+  .circuit-draw .circuit-2 {
+    animation-delay: 0.35s;
+  }
+  .radio-pulse {
+    animation: radio-pulse 1.2s ease-in-out infinite;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lift,
+  .lift:hover,
+  .lift:active,
+  .btn:active:not(:disabled) {
+    transform: none;
+  }
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes draw-circuit {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes radio-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}

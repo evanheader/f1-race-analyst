@@ -7,7 +7,7 @@ the JSON as numbers (26.0) instead of text ("26.000").
 import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
 
 class RaceOut(BaseModel):
@@ -18,6 +18,17 @@ class RaceOut(BaseModel):
     date: datetime.date
     circuit_ref: str
     openf1_session_key: int | None
+
+
+class WinnerOut(BaseModel):
+    driver_name: str
+    driver_code: str | None
+    team: str
+
+
+class RaceSummaryOut(RaceOut):
+    # The result in position 1. Null when the race has no results.
+    winner: WinnerOut | None
 
 
 class ResultOut(BaseModel):
@@ -65,8 +76,15 @@ class DriverStatsOut(BaseModel):
     average_lap_time_seconds: float | None
 
 
+class AskTurnIn(BaseModel):
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+    answer: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+
+
 class AskIn(BaseModel):
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+    # Earlier turns of the conversation, oldest first.
+    history: list[AskTurnIn] = Field(default=[], max_length=3)
 
 
 class ToolCallOut(BaseModel):

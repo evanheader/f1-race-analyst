@@ -5,6 +5,7 @@ from typing import Annotated
 
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -12,13 +13,34 @@ from app import limits
 from app.analyst import QuestionTimeout, Run, answer_question
 from app.database import get_db, get_read_only_db
 from app.models import Driver, Lap, PitStop, Race, Result, SprintResult
-from app.schemas import AskIn, AskOut, DriverStatsOut, LapOut, PitStopOut, RaceOut, ResultOut
+from app.schemas import (
+    AskIn,
+    AskOut,
+    DriverStatsOut,
+    LapOut,
+    PitStopOut,
+    RaceOut,
+    RaceSummaryOut,
+    ResultOut,
+)
 
 # uvicorn leaves the root logger unconfigured, so without this the INFO lines never show.
 logging.basicConfig(level=logging.INFO)
 ask_log = logging.getLogger("app.ask")
 
 app = FastAPI(title="F1 Race Analyst")
+
+# The website runs on another origin, so the browser needs permission to call this API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        o.strip()
+        for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")
+        if o.strip()
+    ],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 
 Db = Annotated[Session, Depends(get_db)]
 ReadOnlyDb = Annotated[Session, Depends(get_read_only_db)]
@@ -47,12 +69,30 @@ def get_race_or_404(db: Session, race_id: int) -> Race:
     return race
 
 
-@app.get("/races", response_model=list[RaceOut])
+@app.get("/races", response_model=list[RaceSummaryOut])
 def list_races(db: Db, season: int | None = None):
-    query = select(Race).order_by(Race.season, Race.round)
+    query = (
+        select(Race, Driver.full_name, Driver.code, Result.team)
+        .outerjoin(Result, (Result.race_id == Race.id) & (Result.position == 1))
+        .outerjoin(Driver, Driver.id == Result.driver_id)
+        .order_by(Race.season, Race.round)
+    )
     if season is not None:
         query = query.where(Race.season == season)
-    return db.scalars(query).all()
+    return [
+        {
+            **RaceOut.model_validate(race, from_attributes=True).model_dump(),
+            "winner": None
+            if team is None
+            else {"driver_name": name, "driver_code": code, "team": team},
+        }
+        for race, name, code, team in db.execute(query).all()
+    ]
+
+
+@app.get("/races/{race_id}", response_model=RaceOut)
+def get_race(race_id: int, db: Db):
+    return get_race_or_404(db, race_id)
 
 
 @app.get("/races/{race_id}/results", response_model=list[ResultOut])
@@ -153,7 +193,7 @@ def ask(body: AskIn, request: Request, db: ReadOnlyDb, client: AnthropicClient):
     started = limits.monotonic()
     run = Run(deadline=started + limits.QUESTION_TIME_LIMIT_SECONDS)
     try:
-        return answer_question(client, db, body.question, run)
+        return answer_question(client, db, body.question, run, body.history)
     except anthropic.APITimeoutError, QuestionTimeout:
         raise HTTPException(status_code=504, detail="The AI assistant took too long to answer.")
     except anthropic.APIError:
@@ -161,9 +201,10 @@ def ask(body: AskIn, request: Request, db: ReadOnlyDb, client: AnthropicClient):
     finally:
         # Never the question or the answer.
         ask_log.info(
-            "ask tool_calls=%d input_tokens=%d output_tokens=%d cost=$%.6f "
+            "ask tool_calls=%d stop_reason=%s input_tokens=%d output_tokens=%d cost=$%.6f "
             "total_today=$%.6f duration=%.1fs",
             run.tool_calls,
+            run.stop_reason,
             run.input_tokens,
             run.output_tokens,
             run.cost,
