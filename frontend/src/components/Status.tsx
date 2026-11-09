@@ -18,7 +18,7 @@ export function Loading({ what }: { what: string }) {
 export function LoadError({ error, what }: { error: unknown; what: string }) {
   const detail = error instanceof ApiError && error.detail ? ` ${error.detail}.` : ''
   return (
-    <p role="alert" className="rounded-md border border-line bg-surface p-3 text-ink">
+    <p role="alert" className="border-l-2 border-accent bg-surface p-3 text-ink">
       Could not load {what}.{detail} Check that the API is running, then reload the page.
     </p>
   )

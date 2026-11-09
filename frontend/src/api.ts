@@ -47,6 +47,7 @@ export const getRaces = (season?: number) =>
   request<RaceSummary[]>(season === undefined ? '/races' : `/races?season=${season}`)
 export const getRace = (id: number) => request<Race>(`/races/${id}`)
 export const getResults = (id: number) => request<RaceResult[]>(`/races/${id}/results`)
+export const getSprintResults = (id: number) => request<RaceResult[]>(`/races/${id}/sprint-results`)
 export const getLaps = (id: number) => request<Lap[]>(`/races/${id}/laps`)
 export const getPitStops = (id: number) => request<PitStop[]>(`/races/${id}/pit-stops`)
 export const ask = (question: string, history: AskTurn[] = []) =>

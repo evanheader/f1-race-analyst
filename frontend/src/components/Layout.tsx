@@ -1,85 +1,116 @@
-import { NavLink, Outlet } from 'react-router'
-import ThemePicker from './ThemePicker'
+import { useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router'
+import { applyScheme, loadScheme, saveScheme, type ColorScheme } from '../colorScheme'
 
-const navClass = ({ isActive }: { isActive: boolean }) =>
-  `rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors duration-150 ${
-    isActive ? 'bg-white/10 text-ink' : 'text-muted hover:bg-white/5 hover:text-ink'
+/** A tab: the current one is filled, with an accent bar along its foot. */
+const tabClass = (active: boolean) =>
+  `relative px-3 py-2 text-[0.9375rem] font-semibold transition-colors duration-150 sm:px-4 ${
+    active
+      ? 'bg-surface text-ink after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:bg-accent'
+      : 'text-muted hover:text-ink'
   }`
 
-const link = 'text-accent-text underline underline-offset-2 hover:text-ink'
+function ThemeToggle() {
+  const [scheme, setScheme] = useState<ColorScheme>(loadScheme)
+  const light = scheme === 'light'
+  function toggle() {
+    const next = light ? 'dark' : 'light'
+    applyScheme(next)
+    saveScheme(next)
+    setScheme(next)
+  }
+  return (
+    <button
+      type="button"
+      aria-pressed={light}
+      aria-label="Light theme"
+      title={light ? 'Switch to dark' : 'Switch to light'}
+      onClick={toggle}
+      className="grid h-10 w-10 place-items-center text-muted transition-colors hover:text-ink"
+    >
+      <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6">
+        {light ? (
+          <path d="M16.5 12.3A7 7 0 0 1 7.7 3.5a7 7 0 1 0 8.8 8.8z" />
+        ) : (
+          <>
+            <circle cx="10" cy="10" r="3.4" />
+            <path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M4 16l1.4-1.4M14.6 5.4 16 4" />
+          </>
+        )}
+      </svg>
+    </button>
+  )
+}
 
-/** Three slanted bars, an original mark for the site. Decorative: the name is next to it. */
+const link = 'text-ink underline decoration-line-strong underline-offset-[3px] hover:decoration-ink'
+
+/** An original mark: a bracket with a timing line ending in a signal dot. Decorative: the name is next to it. */
 function Mark() {
   return (
-    <svg viewBox="0 0 28 16" aria-hidden="true" className="h-4 w-7">
-      <path d="M6 0h7L7 16H0z" fill="var(--team)" />
-      <path d="M15 0h6l-6 16H9z" fill="var(--team)" opacity="0.7" />
-      <path d="M23 0h5l-6 16h-5z" fill="var(--second)" />
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-[1.375rem] w-[1.375rem]" fill="none" strokeWidth="2.4" strokeLinecap="square">
+      <path d="M4 4v16M4 4h5M4 20h5" stroke="var(--ink)" />
+      <path d="M11 12h9" stroke="var(--muted)" />
+      <circle cx="20" cy="12" r="2" fill="var(--accent)" stroke="none" />
     </svg>
   )
 }
 
 export default function Layout() {
+  // A race page belongs to the Races tab too.
+  const { pathname } = useLocation()
+  const racesActive = pathname === '/' || pathname.startsWith('/races/')
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-30 bg-bg/75 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2.5 sm:px-6">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-            <NavLink to="/" className="flex items-center gap-2.5">
-              <Mark />
-              <span className="text-[1.0625rem] font-extrabold italic tracking-tight [font-stretch:125%]">
-                F1 Race Analyst
-              </span>
-            </NavLink>
-            <nav aria-label="Main" className="flex gap-1">
-              <NavLink to="/" end className={navClass}>
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-2 focus:z-50 focus:bg-ink focus:px-4 focus:py-2 focus:text-bg">
+        Skip to content
+      </a>
+      <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-4 py-3 sm:px-10">
+          <NavLink to="/" className="flex items-center gap-2 font-display text-[1.375rem] font-extrabold uppercase leading-none tracking-[0.02em]">
+            <Mark />
+            <span className="hidden min-[440px]:inline">Race Analyst</span>
+            <span className="sr-only min-[440px]:hidden">Race Analyst</span>
+          </NavLink>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <nav aria-label="Main" className="flex border border-line-strong">
+              <NavLink to="/" aria-current={racesActive ? 'page' : undefined} className={() => tabClass(racesActive)}>
                 Races
               </NavLink>
-              <NavLink to="/ask" className={navClass}>
-                Ask the engineer
+              <NavLink to="/ask" className={({ isActive }) => tabClass(isActive)}>
+                Engineer
               </NavLink>
             </nav>
+            <ThemeToggle />
           </div>
-          <ThemePicker />
-        </div>
-        {/* A livery pinstripe: the team color with a hairline of its second color. */}
-        <div aria-hidden="true" data-testid="livery-stripe" className="absolute inset-x-0 -bottom-px">
-          <div className="h-[2px] bg-team" />
-          <div className="h-px bg-second" />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
+      <main id="main" className="mx-auto w-full max-w-7xl flex-1 px-4 pb-24 pt-10 sm:px-10 sm:pt-14">
         <Outlet />
       </main>
       <footer className="border-t border-line text-[0.8125rem] text-muted">
-        <div className="mx-auto max-w-7xl space-y-1.5 px-4 py-8 sm:px-6">
+        <div className="mx-auto grid max-w-7xl gap-2 px-4 py-8 sm:px-10 md:grid-cols-[1fr_auto] md:gap-8">
           <p>Unofficial fan project, not affiliated with Formula 1 or any team.</p>
           <p>
-            Data from{' '}
+            Data{' '}
             <a className={link} href="https://github.com/jolpica/jolpica-f1">
               Jolpica
             </a>{' '}
-            and{' '}
+            ·{' '}
             <a className={link} href="https://openf1.org/">
               OpenF1
-            </a>
-            . Circuit outlines from{' '}
+            </a>{' '}
+            · Circuits{' '}
             <a className={link} href="https://github.com/bacinger/f1-circuits">
               f1-circuits
             </a>{' '}
-            (MIT) and flags from{' '}
+            · Flags{' '}
             <a className={link} href="https://github.com/lipis/flag-icons">
               flag-icons
             </a>{' '}
-            (MIT). Source on{' '}
+            ·{' '}
             <a className={link} href="https://github.com/evanheader/f1-race-analyst">
-              GitHub
+              Source
             </a>
-            .
-          </p>
-          <p>
-            Race data is loaded into PostgreSQL and served by a FastAPI API. The engineer is Claude,
-            using read-only tools over that data.
           </p>
         </div>
       </footer>

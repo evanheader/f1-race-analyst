@@ -55,6 +55,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/races/{race_id}/sprint-results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sprint Results
+         * @description The sprint's finishing order. Empty for a weekend without a sprint.
+         */
+        get: operations["sprint_results_races__race_id__sprint_results_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/races/{race_id}/laps": {
         parameters: {
             query?: never;
@@ -247,6 +267,8 @@ export interface components {
             /** Openf1 Session Key */
             openf1_session_key: number | null;
             winner: components["schemas"]["WinnerOut"] | null;
+            /** Has Sprint */
+            has_sprint: boolean;
         };
         /** ResultOut */
         ResultOut: {
@@ -374,6 +396,37 @@ export interface operations {
         };
     };
     race_results_races__race_id__results_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                race_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sprint_results_races__race_id__sprint_results_get: {
         parameters: {
             query?: never;
             header?: never;

@@ -1,33 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { Lap, PitStop, RaceResult } from '../api'
 import { formatSeconds } from '../format'
-import {
-  classifyPitStops,
-  COMPOUND_COLORS,
-  compoundColor,
-  compoundLetter,
-  deriveStints,
-  type ClassifiedPitStop,
-} from '../stints'
+import { classifyPitStops, COMPOUND_COLORS, compoundColor, compoundLetter, deriveStints } from '../stints'
 
-// Bars on these colors read better with dark text.
-const DARK_TEXT = new Set(['MEDIUM', 'HARD', 'INTERMEDIATE'])
 /** A stint shows its compound letter when it covers at least this share of the race. */
 const LETTER_MIN_SHARE = 0.04
 const TICK_EVERY = 10
 
 const compoundName = (compound: string) => compound.charAt(0) + compound.slice(1).toLowerCase()
 
-function describeStop(code: string, stop: ClassifiedPitStop): string {
-  const stationary =
-    stop.stationary_seconds === null
-      ? 'stationary time not recorded'
-      : `${formatSeconds(stop.stationary_seconds)} stationary`
-  const lane = `${formatSeconds(stop.lane_seconds)} in the pit lane`
-  if (stop.pass) return `${code}, lap ${stop.lap_number}: drove through the pit lane, same tires, ${lane}`
-  const to = stop.nextStint ? `, on to ${compoundName(stop.nextStint.compound).toLowerCase()}` : ''
-  return `${code}, lap ${stop.lap_number}: pit stop, ${stationary}, ${lane}${to}`
-}
+/** Tyre colors toned toward the page, so the chart reads as data rather than a wall of color. */
+const muted = (compound: string) => `color-mix(in srgb, ${compoundColor(compound)} 55%, var(--bg))`
 
 export default function StrategyChart({
   laps,
@@ -38,7 +21,6 @@ export default function StrategyChart({
   pitStops: PitStop[]
   results: RaceResult[]
 }) {
-  const [hint, setHint] = useState('')
   const stints = useMemo(() => deriveStints(laps), [laps])
   const stops = useMemo(() => classifyPitStops(pitStops, stints), [pitStops, stints])
   const raceLaps = Math.max(1, ...stints.map((s) => s.lastLap))
@@ -58,22 +40,22 @@ export default function StrategyChart({
   const ticks = Array.from({ length: Math.floor(raceLaps / TICK_EVERY) }, (_, i) => (i + 1) * TICK_EVERY)
 
   return (
-    <section aria-labelledby="strategy-heading" className="panel space-y-3 p-4 sm:p-5">
+    <section aria-labelledby="strategy-heading" className="panel space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <h2 id="strategy-heading" className="heading">
           Race strategy
         </h2>
-        <p className="text-[0.8125rem] text-muted">Finishing order. Hover or focus a stop to read it.</p>
+        <p className="text-[0.8125rem] text-muted">Finishing order</p>
       </div>
       <ul aria-label="Legend" className="flex flex-wrap gap-x-4 gap-y-1 text-[0.8125rem] text-muted">
         {compounds.map((c) => (
           <li key={c} className="flex items-center gap-1.5">
-            <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: compoundColor(c) }} />
+            <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: muted(c) }} />
             {compoundName(c)}
           </li>
         ))}
         <li className="flex items-center gap-1.5">
-          <span aria-hidden="true" className="inline-block h-3.5 w-1 rounded-full bg-ink" />
+          <span aria-hidden="true" className="inline-block h-3.5 w-0.5 bg-ink" />
           Tire stop
         </li>
         <li className="flex items-center gap-1.5">
@@ -96,67 +78,59 @@ export default function StrategyChart({
             <span className="w-4 shrink-0" />
           </div>
           <ol className="space-y-1">
-            {rows.map(({ result, code, stints: own, stops: ownStops }) => (
-              <li key={result.driver_id} className="group flex items-center gap-2">
-                <span className="num sticky left-0 z-10 w-10 shrink-0 bg-surface text-[0.8125rem] text-muted group-hover:text-ink">{code}</span>
-                <div className="relative h-5 flex-1 rounded-md bg-white/[0.03]">
-                  {ticks.map((t) => (
-                    <span key={t} aria-hidden="true" className="absolute inset-y-0 w-px bg-white/[0.06]" style={{ left: x(t) }} />
-                  ))}
-                  {own.map((s) => (
-                    <div
-                      key={s.stintNumber}
-                      title={`${code}: ${compoundName(s.compound)}, laps ${s.firstLap} to ${s.lastLap}`}
-                      className="num absolute inset-y-0 overflow-hidden rounded-[5px] text-center text-[0.6875rem] leading-5 shadow-[inset_0_1px_0_rgb(255_255_255/0.35),inset_0_-1px_0_rgb(0_0_0/0.2)]"
-                      style={{
-                        left: x(s.firstLap - 1),
-                        width: `calc(${x(s.lastLap - s.firstLap + 1)} - 2px)`,
-                        background: compoundColor(s.compound),
-                        color: DARK_TEXT.has(s.compound) ? '#0A0D12' : '#FFFFFF',
-                      }}
-                    >
-                      {(s.lastLap - s.firstLap + 1) / raceLaps >= LETTER_MIN_SHARE && compoundLetter(s.compound)}
-                    </div>
-                  ))}
-                  {ownStops.map((p) => {
-                    const text = describeStop(code, p)
-                    return p.pass ? (
-                      <span
-                        key={p.lap_number}
-                        title={text}
-                        onPointerEnter={() => setHint(text)}
-                        className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink bg-surface shadow"
-                        style={{ left: x(p.lap_number - 0.5) }}
-                      />
-                    ) : (
-                      <button
-                        key={p.lap_number}
-                        type="button"
-                        title={text}
-                        aria-label={text}
-                        onPointerEnter={() => setHint(text)}
-                        onFocus={() => setHint(text)}
-                        className="absolute -inset-y-[3px] flex w-3 -translate-x-1/2 justify-center rounded-full"
-                        style={{ left: x((p.nextStint?.firstLap ?? p.lap_number + 1) - 1) }}
+            {rows.map(({ result, code, stints: own, stops: ownStops }) => {
+              const label = `${code}: ${own.map((s) => `${compoundName(s.compound)} laps ${s.firstLap} to ${s.lastLap}`).join(', ')}`
+              return (
+                <li key={result.driver_id} className="flex items-center gap-2">
+                  <span className="num sticky left-0 z-10 w-10 shrink-0 bg-bg text-[0.8125rem] text-muted">{code}</span>
+                  <div role="img" aria-label={label} className="relative h-4 flex-1 bg-ink/[0.03]">
+                    {ticks.map((t) => (
+                      <span key={t} aria-hidden="true" className="absolute inset-y-0 w-px bg-ink/[0.06]" style={{ left: x(t) }} />
+                    ))}
+                    {own.map((s) => (
+                      <div
+                        key={s.stintNumber}
+                        aria-hidden="true"
+                        className="num absolute inset-y-0 overflow-hidden rounded-[2px] text-center text-[0.625rem] leading-4 text-ink"
+                        style={{
+                          left: x(s.firstLap - 1),
+                          width: `calc(${x(s.lastLap - s.firstLap + 1)} - 2px)`,
+                          background: muted(s.compound),
+                        }}
                       >
-                        <span aria-hidden="true" className="h-full w-1 rounded-full bg-ink shadow-[0_0_0_1.5px_var(--surface)]" />
-                      </button>
-                    )
-                  })}
-                </div>
-                <span className="w-4 shrink-0" />
-              </li>
-            ))}
+                        {(s.lastLap - s.firstLap + 1) / raceLaps >= LETTER_MIN_SHARE && compoundLetter(s.compound)}
+                      </div>
+                    ))}
+                    {ownStops.map((p) =>
+                      p.pass ? (
+                        <span
+                          key={p.lap_number}
+                          aria-hidden="true"
+                          className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink bg-bg"
+                          style={{ left: x(p.lap_number - 0.5) }}
+                        />
+                      ) : (
+                        <span
+                          key={p.lap_number}
+                          aria-hidden="true"
+                          className="absolute -inset-y-[2px] w-0.5 -translate-x-1/2 bg-ink shadow-[0_0_0_1.5px_var(--bg)]"
+                          style={{ left: x((p.nextStint?.firstLap ?? p.lap_number + 1) - 1) }}
+                        />
+                      ),
+                    )}
+                  </div>
+                  <span className="w-4 shrink-0" />
+                </li>
+              )
+            })}
           </ol>
           <p className="mt-1.5 pl-12 text-xs text-muted">Lap</p>
         </div>
       </div>
-      <p role="status" className="min-h-[1.5rem] text-[0.8125rem]">
-        {hint || (pitStops.length === 0 ? 'No pit stops are recorded for this race.' : '')}
-      </p>
+      {pitStops.length === 0 && <p className="text-[0.8125rem] text-muted">No pit stops are recorded for this race.</p>}
 
       <details className="text-sm">
-        <summary className="cursor-pointer text-accent-text">Show as table</summary>
+        <summary className="eyebrow cursor-pointer hover:!text-ink">Show as table</summary>
         <div className="table-wrap mt-2">
           <table className="timing">
             <caption className="sr-only">Tire stints and pit stops per driver</caption>

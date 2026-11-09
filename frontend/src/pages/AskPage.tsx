@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { ApiError, MAX_HISTORY, MAX_HISTORY_ANSWER_LENGTH, MAX_QUESTION_LENGTH, ask } from '../api'
 import type { AskAnswer, AskTurn } from '../api'
 import Markdown from '../components/Markdown'
+import { loadChats, saveChats, upsertChat, type SavedChat } from '../chatHistory'
 
 const EXAMPLES = [
   'Who won the 2025 British Grand Prix?',
@@ -49,6 +50,29 @@ export default function AskPage() {
   const [pending, setPending] = useState(false)
   const nextId = useRef(1)
   const bottom = useRef<HTMLDivElement>(null)
+  // Earlier chats saved in this browser, and the one on screen (null until its first answer).
+  const [chats, setChats] = useState<SavedChat[]>(loadChats)
+  const [chatId, setChatId] = useState<string | null>(null)
+
+  function storeChats(next: SavedChat[]) {
+    saveChats(next)
+    setChats(next)
+  }
+
+  function newConversation() {
+    setLog([])
+    setChatId(null)
+  }
+
+  function openChat(chat: SavedChat) {
+    setLog(chat.exchanges.map((x) => ({ id: nextId.current++, question: x.question, result: x.result })))
+    setChatId(chat.id)
+  }
+
+  function deleteChat(id: string) {
+    storeChats(chats.filter((c) => c.id !== id))
+    if (id === chatId) newConversation()
+  }
 
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ block: 'nearest' })
@@ -69,31 +93,47 @@ export default function AskPage() {
     }
     setLog((l) => l.map((x) => (x.id === id ? { ...x, result } : x)))
     setPending(false)
+    // Save the chat so far, including this exchange.
+    const saveId = chatId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const exchanges = [
+      ...log.flatMap((x) => (x.result ? [{ question: x.question, result: x.result }] : [])),
+      { question: trimmed, result },
+    ]
+    setChatId(saveId)
+    storeChats(upsertChat(loadChats(), { id: saveId, updatedAt: Date.now(), exchanges }))
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      <div className="space-y-3">
-        <h1 className="display">Ask the engineer</h1>
-        <p className="max-w-prose text-muted">
+    <div className="mx-auto grid max-w-6xl gap-16 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-14">
+    <div className="min-w-0 max-w-3xl space-y-12">
+      <div className="space-y-5">
+        <p className="rise eyebrow flex items-center gap-2">
+          <span aria-hidden="true" className="h-2 w-2 rounded-full bg-accent" />
+          Team radio
+        </p>
+        <h1 className="rise display !text-[clamp(3rem,10vw,6.5rem)]" style={{ '--i': 1 } as CSSProperties}>
+          Ask the engineer
+        </h1>
+        <p className="rise max-w-prose text-muted" style={{ '--i': 2 } as CSSProperties}>
           Ask about F1 results, laps, tires, pit stops and the championship. The engineer remembers your last{' '}
-          {MAX_HISTORY} questions on this page. Reloading the page starts over.
+          {MAX_HISTORY} questions in a chat, and every chat is saved in this browser.
         </p>
       </div>
 
       {log.length === 0 && (
-        <div className="space-y-2">
-          <p className="text-sm text-muted">Try one of these</p>
-          <ul className="grid gap-2 sm:grid-cols-2">
+        <div className="rise" style={{ '--i': 3 } as CSSProperties}>
+          <p className="eyebrow">Try one of these</p>
+          <ul className="mt-3 border-t border-line">
             {EXAMPLES.map((q) => (
               <li key={q}>
                 <button
                   type="button"
                   disabled={pending}
                   onClick={() => submit(q)}
-                  className="panel lift h-full w-full p-4 text-left text-[0.9375rem] hover:border-line-strong"
+                  className="group flex w-full items-center justify-between gap-4 border-b border-line py-3.5 text-left text-[0.9375rem] transition-colors hover:text-ink disabled:opacity-45"
                 >
                   {q}
+                  <span aria-hidden="true" className="text-muted transition-transform duration-200 group-hover:translate-x-1 group-hover:text-accent">→</span>
                 </button>
               </li>
             ))}
@@ -101,29 +141,30 @@ export default function AskPage() {
         </div>
       )}
 
-      <div role="log" aria-label="Conversation" className="space-y-5">
+      <div role="log" aria-label="Conversation" className="space-y-8">
         {log.map((x) => (
-          <div key={x.id} className="space-y-4">
-            <div className="ml-auto w-fit max-w-[90%] rounded-2xl rounded-br-md border border-white/10 bg-[color-mix(in_srgb,var(--team)_28%,var(--surface))] px-4 py-2.5 shadow-lg sm:max-w-[75%]">
+          <div key={x.id} className="space-y-5">
+            <div>
+              <p aria-hidden="true" className="eyebrow">You</p>
               <span className="sr-only">You asked: </span>
-              <p className="whitespace-pre-wrap break-words">{x.question}</p>
+              <p className="mt-2 whitespace-pre-wrap break-words text-lg">{x.question}</p>
             </div>
             {x.result === undefined && (
-              <p role="status" className="flex items-center gap-2.5 text-sm text-accent-text">
-                <span aria-hidden="true" className="radio-pulse h-2 w-2 rounded-full bg-second" />
+              <p role="status" className="eyebrow flex items-center gap-2.5 !text-accent">
+                <span aria-hidden="true" className="radio-pulse h-2 w-2 rounded-full bg-accent" />
                 The engineer is checking the data…
               </p>
             )}
             {x.result && 'error' in x.result && (
-              <p role="alert" className="panel border-bad/40 p-4">
+              <p role="alert" className="border-l-2 border-accent bg-surface p-4">
                 {x.result.error}
               </p>
             )}
             {x.result && 'answer' in x.result && (
-              <div className="panel max-w-[95%] p-4 sm:max-w-[88%] sm:p-5">
-                <p aria-hidden="true" className="mb-2 flex items-center gap-2 text-[0.8125rem] font-semibold text-accent-text">
-                  <span className="h-2 w-2 rounded-full bg-second" />
-                  Race engineer
+              <div className="border-l border-line-strong pl-5">
+                <p aria-hidden="true" className="eyebrow mb-3 flex items-center gap-2 !text-accent">
+                  <span className="h-2 w-2 rounded-full bg-accent" />
+                  Engineer
                 </p>
                 <span className="sr-only">The engineer answered: </span>
                 {x.result.answer.answer.trim() === '' ? (
@@ -132,21 +173,21 @@ export default function AskPage() {
                   <Markdown source={x.result.answer.answer} />
                 )}
                 {x.result.answer.tools_used.length > 0 && (
-                  <div className="mt-4 border-t border-line pt-3">
+                  <div className="mt-5">
                     <ul aria-label="Tools used" className="flex flex-wrap gap-1.5">
                       {x.result.answer.tools_used.map((t, i) => (
                         <li
                           key={i}
                           title={JSON.stringify(t.input)}
-                          className="rounded-full border border-line bg-white/[0.03] px-2.5 py-0.5 text-xs text-muted"
+                          className="num rounded-[2px] border border-line-strong px-2 py-1 text-xs text-muted"
                         >
                           {t.name}
                         </li>
                       ))}
                     </ul>
-                    <details className="mt-2 text-[0.8125rem] text-muted">
-                      <summary className="cursor-pointer hover:text-ink">Tool inputs</summary>
-                      <pre className="mt-2 overflow-x-auto rounded-lg bg-black/30 p-3 text-xs">
+                    <details className="mt-3 text-[0.8125rem] text-muted">
+                      <summary className="eyebrow cursor-pointer hover:!text-ink">Tool inputs</summary>
+                      <pre className="num mt-2 overflow-x-auto bg-surface p-3 text-xs">
                         {x.result.answer.tools_used
                           .map((t) => `${t.name} ${JSON.stringify(t.input)}`)
                           .join('\n')}
@@ -166,7 +207,7 @@ export default function AskPage() {
           e.preventDefault()
           submit(question)
         }}
-        className="panel sticky bottom-4 z-10 space-y-2 p-3 shadow-[0_24px_60px_-20px_rgb(0_0_0/0.9)]"
+        className="sticky bottom-4 z-10 space-y-2 border border-line-strong bg-surface p-3 focus-within:border-ink shadow-[0_24px_60px_-24px_rgb(0_0_0/0.45)]"
       >
         <label htmlFor="question" className="sr-only">
           Your question
@@ -184,7 +225,7 @@ export default function AskPage() {
               submit(question)
             }
           }}
-          className="w-full resize-none rounded-lg bg-transparent px-2 py-1.5 text-ink placeholder:text-muted focus-visible:outline-none"
+          className="w-full resize-none bg-transparent px-2 py-1.5 text-ink placeholder:text-muted focus-visible:outline-none"
         />
         <div className="flex items-center justify-between gap-3 px-1">
           <span className="num text-xs text-muted">
@@ -192,7 +233,7 @@ export default function AskPage() {
           </span>
           <div className="flex gap-2">
             {log.length > 0 && (
-              <button type="button" className="btn !min-h-9" disabled={pending} onClick={() => setLog([])}>
+              <button type="button" className="btn !min-h-9" disabled={pending} onClick={newConversation}>
                 New conversation
               </button>
             )}
@@ -202,6 +243,51 @@ export default function AskPage() {
           </div>
         </div>
       </form>
+    </div>
+
+    <aside aria-labelledby="history-heading" className="lg:sticky lg:top-24 lg:self-start">
+      <h2 id="history-heading" className="eyebrow">
+        Previous chats
+      </h2>
+      {chats.length === 0 ? (
+        <p className="mt-3 text-sm text-muted">Your chats are saved in this browser and listed here.</p>
+      ) : (
+        <ul className="mt-3 border-t border-line">
+          {chats.map((c) => {
+            const first = c.exchanges[0]?.question ?? 'Chat'
+            const active = c.id === chatId
+            const when = new Date(c.updatedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+            return (
+              <li key={c.id} className="flex items-stretch border-b border-line">
+                <button
+                  type="button"
+                  aria-current={active ? 'true' : undefined}
+                  disabled={pending}
+                  onClick={() => openChat(c)}
+                  className={`min-w-0 flex-1 px-3 py-3 text-left transition-colors hover:bg-surface disabled:opacity-45 ${
+                    active ? 'bg-surface shadow-[inset_3px_0_0_var(--accent)]' : ''
+                  }`}
+                >
+                  <span className="line-clamp-2 text-sm font-medium">{first}</span>
+                  <span className="num mt-1 block text-xs text-muted">
+                    {c.exchanges.length} {c.exchanges.length === 1 ? 'question' : 'questions'} · {when}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete chat: ${first}`}
+                  disabled={pending}
+                  onClick={() => deleteChat(c.id)}
+                  className="px-3 text-lg leading-none text-muted transition-colors hover:text-accent disabled:opacity-45"
+                >
+                  ×
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </aside>
     </div>
   )
 }

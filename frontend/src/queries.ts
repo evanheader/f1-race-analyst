@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getLaps, getPitStops, getRace, getRaces, getResults } from './api'
+import { getLaps, getPitStops, getRace, getRaces, getResults, getSprintResults } from './api'
 
 const raceQuery = (id: number) => ({ queryKey: ['race', id], queryFn: () => getRace(id) })
 const resultsQuery = (id: number) => ({ queryKey: ['results', id], queryFn: () => getResults(id) })
@@ -7,6 +7,8 @@ const resultsQuery = (id: number) => ({ queryKey: ['results', id], queryFn: () =
 export const useRaces = () => useQuery({ queryKey: ['races'], queryFn: () => getRaces() })
 export const useRace = (id: number) => useQuery(raceQuery(id))
 export const useResults = (id: number) => useQuery(resultsQuery(id))
+export const useSprintResults = (id: number, enabled: boolean) =>
+  useQuery({ queryKey: ['sprint-results', id], queryFn: () => getSprintResults(id), enabled })
 export const useLaps = (id: number, enabled: boolean) =>
   useQuery({ queryKey: ['laps', id], queryFn: () => getLaps(id), enabled })
 export const usePitStops = (id: number, enabled: boolean) =>

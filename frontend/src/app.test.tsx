@@ -2,13 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AskAnswer, Lap, PitStop, RaceResult, RaceSummary } from './api'
 import App from './App'
-import { THEME_STORAGE_KEY } from './themes'
 
 const races: RaceSummary[] = [
-  { id: 1, season: 2024, round: 1, name: 'Bahrain Grand Prix', date: '2024-03-02', circuit_ref: 'bahrain', openf1_session_key: 1, winner: null },
+  { id: 1, season: 2024, round: 1, name: 'Bahrain Grand Prix', date: '2024-03-02', circuit_ref: 'bahrain', openf1_session_key: 1, winner: null, has_sprint: false },
   {
     id: 2,
     season: 2025,
@@ -18,8 +17,9 @@ const races: RaceSummary[] = [
     circuit_ref: 'albert_park',
     openf1_session_key: 10,
     winner: { driver_name: 'Lando Norris', driver_code: 'NOR', team: 'McLaren' },
+    has_sprint: true,
   },
-  { id: 3, season: 2025, round: 2, name: 'Chinese Grand Prix', date: '2025-03-23', circuit_ref: 'shanghai', openf1_session_key: null, winner: null },
+  { id: 3, season: 2025, round: 2, name: 'Chinese Grand Prix', date: '2025-03-23', circuit_ref: 'shanghai', openf1_session_key: null, winner: null, has_sprint: false },
 ]
 
 function result(driver_id: number, code: string, team: string, position: number): RaceResult {
@@ -90,10 +90,6 @@ function renderApp(path: string) {
   )
 }
 
-beforeEach(() => {
-  document.documentElement.removeAttribute('data-theme')
-})
-
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -101,33 +97,30 @@ afterEach(() => {
 const seasonButton = () => screen.getByRole('button', { name: /Season/ })
 
 describe('race list', () => {
-  const openLinks = (name: string) => screen.queryAllByRole('link', { name: `Open analysis for ${name}` })
-
   it('opens on the latest season with results, with a link only for races that have results', async () => {
     fakeApi({ '/races': { body: races } })
 
     renderApp('/')
 
-    await screen.findAllByRole('link', { name: 'Open analysis for Australian Grand Prix' })
-    // The latest race is featured and also in the calendar.
-    expect(openLinks('Australian Grand Prix')).toHaveLength(2)
-    expect(openLinks('Australian Grand Prix')[0]).toHaveAttribute('href', '/races/2')
-    expect(openLinks('Chinese Grand Prix')).toHaveLength(0)
-    expect(screen.getAllByText('No result yet').length).toBeGreaterThan(0)
-    expect(screen.queryByText('Lap data available')).not.toBeInTheDocument()
+    // The latest race is featured, and every round with a result links from the calendar.
+    expect(await screen.findByRole('link', { name: 'Open race Australian Grand Prix' })).toHaveAttribute('href', '/races/2')
+    expect(screen.getByRole('link', { name: 'Australian Grand Prix' })).toHaveAttribute('href', '/races/2')
+    expect(screen.queryByRole('link', { name: 'Chinese Grand Prix' })).not.toBeInTheDocument()
+    expect(screen.getByText('No result yet')).toBeInTheDocument()
     expect(screen.queryByText('Bahrain Grand Prix')).not.toBeInTheDocument()
     expect(seasonButton()).toHaveTextContent('2025')
-    expect(screen.getByText('1 of 2 rounds run, 1 different winner.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('2025 season')
+    expect(screen.getByText('1 of 2 rounds run · 1 winner')).toBeInTheDocument()
   })
 
-  it('draws the season strip: a link per round with a result, and wins per driver', async () => {
+  it('lists wins per driver', async () => {
     fakeApi({ '/races': { body: races } })
 
     renderApp('/')
 
-    expect(await screen.findByRole('link', { name: 'Round 1, Australian Grand Prix, won by Lando Norris' })).toHaveAttribute('href', '/races/2')
-    expect(screen.queryByRole('link', { name: /Round 2, Chinese Grand Prix/ })).not.toBeInTheDocument()
-    expect(within(screen.getByRole('list', { name: 'Wins this season' })).getByText('1 win')).toBeInTheDocument()
+    const wins = await screen.findByRole('list', { name: 'Wins this season' })
+    expect(within(wins).getByText('Lando Norris')).toBeInTheDocument()
+    expect(within(wins).getByText('1 win')).toBeInTheDocument()
   })
 
   it('copes with an API that leaves the winner field out', async () => {
@@ -151,7 +144,7 @@ describe('race list', () => {
   it('lists the seasons in the picker and switches season', async () => {
     fakeApi({ '/races': { body: races } })
     renderApp('/')
-    await screen.findAllByRole('link', { name: 'Open analysis for Australian Grand Prix' })
+    await screen.findByRole('link', { name: 'Australian Grand Prix' })
 
     await userEvent.click(seasonButton())
     expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual(['2025', '2024'])
@@ -195,10 +188,8 @@ describe('race detail', () => {
     expect(within(tower).getAllByRole('button')).toHaveLength(3)
 
     const strategy = (await screen.findByRole('heading', { name: 'Race strategy' })).closest('section')!
-    expect(within(strategy).getByTitle('NOR: Soft, laps 1 to 3')).toBeInTheDocument()
-    expect(within(strategy).getByTitle('NOR: Hard, laps 4 to 5')).toBeInTheDocument()
-    expect(within(strategy).getAllByTitle(/: Medium, laps 1 to 5/)).toHaveLength(2)
-    expect(within(strategy).getByRole('button', { name: /NOR, lap 3: pit stop, stationary time not recorded, 21.500s in the pit lane, on to hard/ })).toBeInTheDocument()
+    expect(within(strategy).getByRole('img', { name: 'NOR: Soft laps 1 to 3, Hard laps 4 to 5' })).toBeInTheDocument()
+    expect(within(strategy).getAllByRole('img', { name: /: Medium laps 1 to 5$/ })).toHaveLength(2)
   })
 
   it('lists stints and stops in the table under the strategy chart, in finishing order', async () => {
@@ -228,6 +219,20 @@ describe('race detail', () => {
 
     expect(driverButton('NOR')).toHaveAttribute('aria-pressed', 'false')
     expect(['PIA', 'VER', 'HAM'].map((c) => driverButton(c).getAttribute('aria-pressed'))).toEqual(['true', 'true', 'true'])
+  })
+
+  it('switches the classification to the sprint, and links the rounds either side', async () => {
+    api({
+      '/races/2/sprint-results': { body: [result(2, 'PIA', 'McLaren', 1)] },
+      '/races': { body: [...races, { ...races[1], id: 4, round: 2, name: 'Japanese Grand Prix', circuit_ref: 'suzuka' }] },
+    })
+    renderApp('/races/2')
+    const sessions = await screen.findByRole('group', { name: 'Session' })
+
+    await userEvent.click(within(sessions).getByRole('button', { name: 'Sprint' }))
+    expect(screen.getByRole('heading', { name: 'Sprint' })).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Race classification' })).getByText('PIA')).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Next race, Japanese Grand Prix' })[0]).toHaveAttribute('href', '/races/4')
   })
 
   it('switches the lap chart between the clean and raw views', async () => {
@@ -385,47 +390,36 @@ describe('ask the engineer', () => {
     expect(bodies[1].history).toEqual([])
   })
 
+  it('saves chats in the browser, reopens one to continue it, and deletes one', async () => {
+    const bodies = sequence([
+      { body: { answer: 'Norris won.', tools_used: [] } },
+      { body: { answer: 'Piastri was second.', tools_used: [] } },
+      { body: { answer: 'From pole.', tools_used: [] } },
+    ])
+    const { unmount } = renderApp('/ask')
+    await send('Who won?', 'Norris won.')
+    await userEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+    await send('Who was second?', 'Piastri was second.')
+    unmount()
+
+    // A fresh visit lists both chats, newest first, and reopening one carries its history on.
+    renderApp('/ask')
+    const history = screen.getByRole('complementary', { name: 'Previous chats' })
+    const chats = within(history).getAllByRole('button', { name: /question ·/ })
+    expect(chats.map((c) => c.textContent?.split('1 question')[0])).toEqual(['Who was second?', 'Who won?'])
+    await userEvent.click(chats[1])
+    expect(screen.getByText('Norris won.')).toBeInTheDocument()
+    await send('From where?', 'From pole.')
+    expect(bodies[2].history).toEqual([{ question: 'Who won?', answer: 'Norris won.' }])
+
+    await userEvent.click(within(history).getByRole('button', { name: 'Delete chat: Who was second?' }))
+    expect(within(history).queryByText('Who was second?')).not.toBeInTheDocument()
+    expect(within(history).getByText('2 questions', { exact: false })).toBeInTheDocument()
+  })
+
   it('stops the question at 500 characters', () => {
     renderApp('/ask')
 
     expect(screen.getByLabelText('Your question')).toHaveAttribute('maxlength', '500')
-  })
-})
-
-describe('theme picker', () => {
-  const themeButton = () => screen.getByRole('button', { name: /Theme/ })
-
-  it('sets data-theme and the surface colors on the page and saves the choice', async () => {
-    fakeApi({ '/races': { body: races } })
-    renderApp('/')
-
-    await userEvent.click(themeButton())
-    await userEvent.click(screen.getByRole('option', { name: 'Ferrari' }))
-
-    expect(document.documentElement.dataset.theme).toBe('ferrari')
-    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#C8102E')
-    expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#130A0C')
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('ferrari')
-    expect(themeButton()).toHaveTextContent('Ferrari')
-  })
-
-  it('starts on Red Bull Racing when nothing is saved', () => {
-    localStorage.removeItem(THEME_STORAGE_KEY)
-    fakeApi({ '/races': { body: races } })
-
-    renderApp('/')
-
-    expect(themeButton()).toHaveTextContent('Red Bull Racing')
-  })
-
-  it('lists all 12 themes and starts from the saved theme', async () => {
-    localStorage.setItem(THEME_STORAGE_KEY, 'mclaren')
-    fakeApi({ '/races': { body: races } })
-
-    renderApp('/')
-
-    expect(themeButton()).toHaveTextContent('McLaren')
-    await userEvent.click(themeButton())
-    expect(screen.getAllByRole('option')).toHaveLength(12)
   })
 })

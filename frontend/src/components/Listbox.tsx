@@ -126,7 +126,7 @@ export default function Listbox({ label, options, value, onChange, alignEnd = fa
 
   return (
     <div ref={root} className="relative flex items-center gap-2">
-      <span id={labelId} className="text-sm text-muted">
+      <span id={labelId} className="eyebrow">
         {label}
       </span>
       <button
@@ -154,7 +154,7 @@ export default function Listbox({ label, options, value, onChange, alignEnd = fa
           aria-labelledby={labelId}
           aria-activedescendant={optionId(active)}
           onKeyDown={onListKeyDown}
-          className={`listbox absolute top-full z-40 mt-2 min-w-full overflow-y-auto rounded-xl border border-line-strong bg-raised p-1 shadow-[0_24px_48px_-12px_rgb(0_0_0/0.8)] ${
+          className={`listbox absolute top-full z-40 mt-2 min-w-full overflow-y-auto border border-line-strong bg-raised p-1 shadow-[0_24px_48px_-12px_rgb(0_0_0/0.8)] ${
             alignEnd ? 'left-0 sm:left-auto sm:right-0' : 'left-0'
           }`}
           style={{ maxHeight: `${VISIBLE_ROWS * 2.25 + 0.5}rem` }}
@@ -167,7 +167,7 @@ export default function Listbox({ label, options, value, onChange, alignEnd = fa
               aria-selected={o.value === value}
               onClick={() => choose(i)}
               onPointerMove={() => active !== i && setActive(i)}
-              className={`flex h-9 cursor-pointer items-center gap-2.5 whitespace-nowrap rounded-lg px-2.5 text-sm ${
+              className={`flex h-9 cursor-pointer items-center gap-2.5 whitespace-nowrap px-2.5 num text-sm ${
                 i === active ? 'bg-white/10' : ''
               } ${o.value === value ? 'font-semibold' : ''}`}
             >

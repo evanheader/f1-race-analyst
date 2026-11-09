@@ -4,10 +4,10 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import { ApiError } from './api'
 import App from './App'
+import { applyScheme, loadScheme } from './colorScheme'
 import './index.css'
-import { applyTheme, loadThemeId } from './themes'
 
-applyTheme(loadThemeId())
+applyScheme(loadScheme())
 
 const queryClient = new QueryClient({
   defaultOptions: {

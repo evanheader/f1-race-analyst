@@ -44,7 +44,7 @@ You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) runni
 
    If it stops with a `401` or `429`, a live F1 session or a rate limit is blocking the data source. Run the same command again later. To load other seasons, pass them: `python -m scripts.load_data 2023 2024`.
 
-5. Open <http://localhost:8000/docs> to try the API, or <http://localhost:8000/races> to see the races. With the quick demo, try <http://localhost:8000/races/1/results> and <http://localhost:8000/races/1/pit-stops>.
+5. Open <http://localhost:8000/docs> to try the API, or <http://localhost:8000/races> to see the races. With the quick demo, try <http://localhost:8000/races/1/results> and <http://localhost:8000/races/1/pit-stops>. On a sprint weekend, `/races/{id}/sprint-results` has the sprint classification (empty otherwise), and `/races` marks those weekends with `has_sprint`.
 
 To stop everything, run `docker compose down`. Your data is kept for next time.
 
@@ -79,7 +79,7 @@ Everything above works without this. Only `POST /ask` needs a key.
 
 ## Website
 
-A React site over the API: a season page with each race as a card shaded in the winning team's color, a race page with a timing tower, a lap time chart (clean or raw) and a tire and pit stop strategy chart, and a page to talk to the engineer. You need [Node.js](https://nodejs.org/) 24 and the API running (see How to run).
+A React site over the API: a season page with the latest race, the season's winners and every round drawn as its circuit, a race page with a timing tower, a lap time chart (clean or raw) and a tire and pit stop strategy chart, and a page to talk to the engineer. You need [Node.js](https://nodejs.org/) 24 and the API running (see How to run).
 
 ```bash
 cd frontend
@@ -93,7 +93,7 @@ Open <http://localhost:5173>.
 - The API only accepts calls from the addresses in `CORS_ORIGINS` (default `http://localhost:5173`). If you serve the site from another address, add it there and restart the API.
 - After changing the API's response shapes, run `npm run gen:types` in `frontend/` to rebuild `src/api-types.ts`. It needs `uv`, and it does not need the API running.
 - Run the site's checks with `npm run lint`, `npm test` and `npm run build`. The tests use fake data and never call the API.
-- Pick a theme from the menu in the header: one of the 11 teams on the 2026 grid (Red Bull Racing is the default) or Pit Wall Blue. The choice is saved in your browser. Team colors were sampled from 2026 team card artwork and are estimates, not official brand values.
+- Fonts (Big Shoulders Display, IBM Plex Sans and IBM Plex Mono) load from Google Fonts. Driver photos for the 22 drivers on the 2026 grid load from formula1.com's image CDN (`src/data/driverPhotos.json`, matched to database names from the photos on formula1.com/en/drivers); they belong to Formula 1. Other drivers, or a photo that fails to load, get an original illustration.
 - Circuit outlines come from [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) (MIT, pinned to one commit) and flags from [flag-icons](https://github.com/lipis/flag-icons) (MIT). `npm run gen:circuits` rebuilds `src/data/circuits.json` from the dataset; a few circuits (Fuji, Buddh, Valencia, Yeongam, and the Indianapolis road course) are not in it and show a flag and name only.
 
 ## AI analyst

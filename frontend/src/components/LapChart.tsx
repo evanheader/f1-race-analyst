@@ -15,7 +15,7 @@ import { formatClock, formatLapTime } from '../format'
 import { buildChartData, type LapChartMode } from '../lapChart'
 import { teamColor } from '../teamColors'
 
-const AXIS = { stroke: 'transparent', tick: { fill: '#9AA6BC', fontSize: 12 }, tickLine: false } as const
+const AXIS = { stroke: 'transparent', tick: { fill: 'var(--muted)', fontSize: 11, fontFamily: 'IBM Plex Mono, monospace' }, tickLine: false } as const
 
 interface Series {
   key: string
@@ -27,8 +27,8 @@ interface Series {
 function ChartTooltip({ active, label, payload, series }: TooltipContentProps<number, string> & { series: Series[] }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-xl border border-line-strong bg-raised/95 px-3 py-2 text-sm shadow-xl backdrop-blur">
-      <p className="mb-1 text-[0.8125rem] text-muted">Lap {label}</p>
+    <div className="border border-line-strong bg-surface px-3 py-2 text-sm shadow-xl">
+      <p className="eyebrow mb-1.5">Lap {label}</p>
       {series.map((s) => {
         const value = payload.find((p) => p.dataKey === s.key)?.value
         // A bridged point is drawn to join the line, but it is not a lap anyone drove at that time.
@@ -62,7 +62,7 @@ export default function LapChart({ laps, chosen }: { laps: Lap[]; chosen: RaceRe
   })
 
   return (
-    <section aria-labelledby="lap-chart-heading" className="panel p-4 sm:p-5">
+    <section aria-labelledby="lap-chart-heading" className="panel">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="lap-chart-heading" className="heading">
           Lap times
@@ -96,11 +96,11 @@ export default function LapChart({ laps, chosen }: { laps: Lap[]; chosen: RaceRe
             <LineChart data={data.rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <defs>
                 <pattern id="slow-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                  <rect width="6" height="6" fill="rgb(255 255 255 / 0.03)" />
-                  <line x1="0" y1="0" x2="0" y2="6" stroke="rgb(255 255 255 / 0.08)" strokeWidth="2" />
+                  <rect width="6" height="6" fill="var(--ink)" fillOpacity="0.03" />
+                  <line x1="0" y1="0" x2="0" y2="6" stroke="var(--ink)" strokeOpacity="0.08" strokeWidth="2" />
                 </pattern>
               </defs>
-              <CartesianGrid stroke="rgb(255 255 255 / 0.06)" vertical={false} />
+              <CartesianGrid stroke="rgb(144 151 160 / 0.14)" vertical={false} />
               {data.slowRanges.map(([first, last]) => (
                 <ReferenceArea key={first} x1={first - 0.5} x2={last + 0.5} fill="url(#slow-hatch)" strokeOpacity={0} ifOverflow="hidden" />
               ))}
@@ -114,7 +114,7 @@ export default function LapChart({ laps, chosen }: { laps: Lap[]; chosen: RaceRe
                 {...AXIS}
               />
               <Tooltip
-                cursor={{ stroke: 'rgb(255 255 255 / 0.25)', strokeWidth: 1 }}
+                cursor={{ stroke: 'var(--muted)', strokeWidth: 1 }}
                 content={(props) => <ChartTooltip {...props} series={series} />}
               />
               {series.map((s) => (
