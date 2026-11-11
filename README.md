@@ -123,7 +123,7 @@ Open <http://localhost:5173>.
 
 If a name could mean more than one driver, team or race (two Schumachers, two races in Spain), the analyst answers for every match.
 
-It answers like a race engineer on team radio: "Copy. At the end of lap 30 of the 2025 British Grand Prix, Oscar Piastri (PIA) was leading, with Lando Norris (NOR) second and Lance Stroll (STR) third."
+It answers like a race engineer on team radio: "At the end of lap 30 of the 2025 British Grand Prix, Oscar Piastri (PIA) was leading, with Lando Norris (NOR) second and Lance Stroll (STR) third."
 
 It remembers the last 3 questions and answers of a conversation, sent with each question as `history`. If a question needs a season and gives none, it asks which season, and your reply answers it.
 
