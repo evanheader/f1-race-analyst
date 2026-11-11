@@ -28,6 +28,11 @@ export function circuitName(ref: string): string {
     .join(' ')
 }
 
+/** A round number as shown on the timing screen: 5 becomes "R05". */
+export function formatRound(round: number): string {
+  return `R${String(round).padStart(2, '0')}`
+}
+
 /** Whole seconds as m:ss, for axis ticks. */
 export function formatClock(seconds: number): string {
   const total = Math.round(seconds)

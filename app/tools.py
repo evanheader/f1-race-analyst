@@ -27,6 +27,13 @@ DRIVER_DESCRIPTION = (
     "A driver who took part in that race: surname, full name, driver ref or three-letter "
     "code, for example 'verstappen', 'Lewis Hamilton' or 'HAM'."
 )
+SEASON_DRIVER = {
+    "type": "string",
+    "description": (
+        "A driver who raced that season: surname, full name, driver ref or "
+        "three-letter code, for example 'verstappen' or 'HAM'."
+    ),
+}
 LIMITS = (
     "Data limits: race results exist from 2000 onward. Lap, tire and pit stop data exist "
     "only from 2023."
@@ -112,13 +119,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "season": RACE_PROPERTIES["season"],
-                "driver": {
-                    "type": "string",
-                    "description": (
-                        "A driver who raced that season: surname, full name, driver ref or "
-                        "three-letter code, for example 'verstappen' or 'HAM'."
-                    ),
-                },
+                "driver": SEASON_DRIVER,
                 "team": {
                     "type": "string",
                     "description": "A team that raced that season, for example 'Red Bull' or 'mclaren'.",
@@ -174,13 +175,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "season": RACE_PROPERTIES["season"],
-                "driver": {
-                    "type": "string",
-                    "description": (
-                        "A driver who raced that season: surname, full name, driver ref or "
-                        "three-letter code, for example 'verstappen' or 'HAM'."
-                    ),
-                },
+                "driver": SEASON_DRIVER,
             },
             "required": ["season", "driver"],
         },
@@ -206,8 +201,12 @@ def _race_label(race: Race) -> str:
     return f"round {race.round}: {race.name} ({race.circuit_ref})"
 
 
+def _season_races(db: Session, season: int) -> list[Race]:
+    return db.scalars(select(Race).where(Race.season == season).order_by(Race.round)).all()
+
+
 def find_race(db: Session, season: int, race: str) -> Race:
-    races = db.scalars(select(Race).where(Race.season == season).order_by(Race.round)).all()
+    races = _season_races(db, season)
     query = _plain(race.strip())
     matches = [
         r
@@ -242,6 +241,18 @@ def _matching_drivers(drivers: list[Driver], text: str) -> list[Driver]:
     return exact or [d for d in drivers if query and query in _plain(d.full_name)]
 
 
+def _one_driver(
+    entrants: list[Driver], driver: str, where: str, listed_as: str, if_none: str = ""
+) -> Driver:
+    """The one entrant the text names, or a ToolError that lists the entrants."""
+    matches = _matching_drivers(entrants, driver)
+    if len(matches) == 1:
+        return matches[0]
+    listing = ", ".join(f"{d.full_name} ({d.code})" for d in entrants) or if_none
+    problem = "No driver" if not matches else "More than one driver"
+    raise ToolError(f"{problem} matching '{driver}' in {where}. {listed_as}: {listing}")
+
+
 def find_driver(db: Session, race: Race, driver: str) -> Driver:
     entrants = db.scalars(
         select(Driver)
@@ -249,14 +260,7 @@ def find_driver(db: Session, race: Race, driver: str) -> Driver:
         .where(Result.race_id == race.id)
         .order_by(Result.position)
     ).all()
-    matches = _matching_drivers(entrants, driver)
-    if len(matches) == 1:
-        return matches[0]
-    listing = ", ".join(f"{d.full_name} ({d.code})" for d in entrants)
-    problem = "No driver" if not matches else "More than one driver"
-    raise ToolError(
-        f"{problem} matching '{driver}' in the {race.season} {race.name}. Drivers in that race: {listing}"
-    )
+    return _one_driver(entrants, driver, f"the {race.season} {race.name}", "Drivers in that race")
 
 
 def _race_info(race: Race) -> dict:
@@ -303,10 +307,9 @@ def get_race_results(db: Session, season: int, race: str) -> dict:
         }
         for position, position_text, name, code, team, grid, status, points in rows
     ]
-    season_races = db.scalars(select(Race).where(Race.season == season).order_by(Race.round)).all()
     return {
         "race": _race_info(race_row),
-        "season_races": [_race_label(r) for r in season_races],
+        "season_races": [_race_label(r) for r in _season_races(db, season)],
         "results": results,
     }
 
@@ -315,6 +318,7 @@ def compare_drivers(db: Session, season: int, race: str, driver_a: str, driver_b
     race_row = find_race(db, season, race)
     drivers = [find_driver(db, race_row, driver_a), find_driver(db, race_row, driver_b)]
     has_laps = _has_laps(db, race_row)
+    clean = (Lap.is_pit_out_lap.is_(False), Lap.is_deleted.is_(False))
 
     comparison = []
     for driver in drivers:
@@ -331,12 +335,8 @@ def compare_drivers(db: Session, season: int, race: str, driver_a: str, driver_b
             laps_completed, average, fastest = db.execute(
                 select(
                     func.count(Lap.id),
-                    func.avg(Lap.lap_time_seconds).filter(
-                        Lap.is_pit_out_lap.is_(False), Lap.is_deleted.is_(False)
-                    ),
-                    func.min(Lap.lap_time_seconds).filter(
-                        Lap.is_pit_out_lap.is_(False), Lap.is_deleted.is_(False)
-                    ),
+                    func.avg(Lap.lap_time_seconds).filter(*clean),
+                    func.min(Lap.lap_time_seconds).filter(*clean),
                 ).where(Lap.race_id == race_row.id, Lap.driver_id == driver.id)
             ).one()
             entry["laps_completed"] = laps_completed
@@ -416,14 +416,12 @@ def find_season_driver(db: Session, season: int, driver: str) -> Driver:
         .distinct()
         .order_by(Driver.full_name)
     ).all()
-    matches = _matching_drivers(entrants, driver)
-    if len(matches) == 1:
-        return matches[0]
-    listing = ", ".join(f"{d.full_name} ({d.code})" for d in entrants)
-    problem = "No driver" if not matches else "More than one driver"
-    raise ToolError(
-        f"{problem} matching '{driver}' in {season}. Drivers that season: "
-        f"{listing or 'no results loaded for that season'}"
+    return _one_driver(
+        entrants,
+        driver,
+        str(season),
+        "Drivers that season",
+        if_none="no results loaded for that season",
     )
 
 

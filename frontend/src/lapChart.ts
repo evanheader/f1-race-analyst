@@ -24,14 +24,14 @@ export interface ChartData {
 }
 
 /** A lap is slow for the field when its median time is above this share of the race's median lap. */
-export const SLOW_LAP_FACTOR = 1.1
+const SLOW_LAP_FACTOR = 1.1
 /**
  * The clean view drops laps slower than this share of the driver's own median racing lap, after the
  * 107% rule. There is no lower limit: in a race that turns from wet to dry, the fast dry laps are real.
  */
-export const CLEAN_MAX_FACTOR = 1.07
+const CLEAN_MAX_FACTOR = 1.07
 /** The clean view bridges a gap of up to this many hidden laps, such as a pit stop. Longer gaps stay broken. */
-export const MAX_BRIDGED_LAPS = 3
+const MAX_BRIDGED_LAPS = 3
 
 export function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b)

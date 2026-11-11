@@ -104,6 +104,10 @@ Open <http://localhost:5173>.
 - Fonts (Big Shoulders Display, IBM Plex Sans and IBM Plex Mono) load from Google Fonts. Driver photos for the 22 drivers on the 2026 grid load from formula1.com's image CDN (`src/data/driverPhotos.json`, matched to database names from the photos on formula1.com/en/drivers); they belong to Formula 1. Other drivers, or a photo that fails to load, get an original illustration.
 - Circuit outlines come from [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) (MIT, pinned to one commit) and flags from [flag-icons](https://github.com/lipis/flag-icons) (MIT). `npm run gen:circuits` rebuilds `src/data/circuits.json` from the dataset; a few circuits (Fuji, Buddh, Valencia, Yeongam, and the Indianapolis road course) are not in it and show a flag and name only.
 
+## Put it online
+
+[docs/deploy.md](docs/deploy.md) puts the project online for free: the database on Neon, the API on Render (from `render.yaml`) and the website on Cloudflare Pages. Both redeploy on every merge to `main`. `GET /health` returns `{"status": "ok"}` for the host's health check and for an uptime monitor that keeps the free API awake.
+
 ## AI analyst
 
 `POST /ask` sends your question to Claude (`claude-haiku-5-5`). Claude looks things up with six tools, then answers from what they return. The tools only read from the database.
@@ -119,7 +123,7 @@ Open <http://localhost:5173>.
 
 If a name could mean more than one driver, team or race (two Schumachers, two races in Spain), the analyst answers for every match.
 
-It answers like a race engineer on team radio: "Copy. At the end of lap 30 of the 2025 British Grand Prix, Oscar Piastri (PIA) was leading, with Lando Norris (NOR) second and Lance Stroll (STR) third."
+It answers like a race engineer on team radio: "At the end of lap 30 of the 2025 British Grand Prix, Oscar Piastri (PIA) was leading, with Lando Norris (NOR) second and Lance Stroll (STR) third."
 
 It remembers the last 3 questions and answers of a conversation, sent with each question as `history`. If a question needs a season and gives none, it asks which season, and your reply answers it.
 
@@ -234,5 +238,6 @@ The tests use a separate `f1_test` database, so they never touch your real data,
 ## More documentation
 
 - [DESIGN.md](DESIGN.md): why the project is built this way
+- [docs/deploy.md](docs/deploy.md): how to put it online for free
 - [docs/schema.md](docs/schema.md): every table and column
 - [docs/api-reference.md](docs/api-reference.md): notes on the two data sources

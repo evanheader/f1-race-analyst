@@ -6,7 +6,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 load_dotenv()
-engine = create_engine(os.environ["DATABASE_URL"])
+# A hosted database that sleeps when idle (Neon) drops its connections, so each one is checked
+# before use and replaced if it has gone.
+engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)
 
 
 def get_db() -> Iterator[Session]:
