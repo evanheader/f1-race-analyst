@@ -2,7 +2,7 @@
  * Team colors for chart lines and marks, keyed by the team name stored in the database. They are
  * bright so a thin line reads on the dark panels, and they do not change with the theme.
  */
-export const TEAM_COLORS: Record<string, string> = {
+const TEAM_COLORS: Record<string, string> = {
   McLaren: '#FF8000',
   Ferrari: '#E80020',
   'Red Bull': '#3671C6',
@@ -19,7 +19,7 @@ export const TEAM_COLORS: Record<string, string> = {
   'Cadillac F1 Team': '#E8E8E8',
 }
 
-export const FALLBACK_TEAM_COLOR = '#9CA3AF'
+const FALLBACK_TEAM_COLOR = '#9CA3AF'
 
 export function teamColor(team: string): string {
   return TEAM_COLORS[team] ?? FALLBACK_TEAM_COLOR

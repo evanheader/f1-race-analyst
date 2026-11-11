@@ -1,7 +1,7 @@
 import type { AskAnswer } from './api'
 
 export type SavedResult = { answer: AskAnswer } | { error: string }
-export interface SavedExchange {
+interface SavedExchange {
   question: string
   result: SavedResult
 }
@@ -11,9 +11,9 @@ export interface SavedChat {
   exchanges: SavedExchange[]
 }
 
-export const CHATS_STORAGE_KEY = 'f1ra-chats'
+const CHATS_STORAGE_KEY = 'f1ra-chats'
 /** The oldest chats drop off past this, so storage stays small. */
-export const MAX_SAVED_CHATS = 30
+const MAX_SAVED_CHATS = 30
 
 /** Saved chats, most recent first. Anything unreadable counts as no history. */
 export function loadChats(): SavedChat[] {

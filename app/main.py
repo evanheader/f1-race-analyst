@@ -69,6 +69,13 @@ def get_race_or_404(db: Session, race_id: int) -> Race:
     return race
 
 
+@app.get("/health")
+def health():
+    """Says the server is up. It does not touch the database, so that an uptime check calling
+    it every few minutes keeps the server awake without keeping the database awake too."""
+    return {"status": "ok"}
+
+
 @app.get("/races", response_model=list[RaceSummaryOut])
 def list_races(db: Db, season: int | None = None):
     query = (
@@ -212,9 +219,13 @@ def ask(body: AskIn, request: Request, db: ReadOnlyDb, client: AnthropicClient):
     try:
         return answer_question(client, db, body.question, run, body.history)
     except anthropic.APITimeoutError, QuestionTimeout:
-        raise HTTPException(status_code=504, detail="The AI assistant took too long to answer.")
+        raise HTTPException(
+            status_code=504, detail="The AI assistant took too long to answer."
+        ) from None
     except anthropic.APIError:
-        raise HTTPException(status_code=502, detail="The AI assistant is unavailable right now.")
+        raise HTTPException(
+            status_code=502, detail="The AI assistant is unavailable right now."
+        ) from None
     finally:
         # Never the question or the answer.
         ask_log.info(

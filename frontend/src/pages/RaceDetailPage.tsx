@@ -8,7 +8,7 @@ import LapChart from '../components/LapChart'
 import { Loading, LoadError } from '../components/Status'
 import StrategyChart from '../components/StrategyChart'
 import TimingTower from '../components/TimingTower'
-import { circuitName, formatDate, formatLapTime } from '../format'
+import { circuitName, formatDate, formatLapTime, formatRound } from '../format'
 import { useLaps, usePitStops, usePrefetchRace, useRace, useRaces, useResults, useSprintResults } from '../queries'
 
 const MAX_COMPARED = 3
@@ -54,7 +54,7 @@ function PagerLink({ race, direction }: { race: RaceSummary; direction: 'previou
       </span>
       <span className="min-w-0 leading-tight">
         <span className="eyebrow block !text-[0.625rem]">
-          {back ? 'Previous' : 'Next'} · R{String(race.round).padStart(2, '0')}
+          {back ? 'Previous' : 'Next'} · {formatRound(race.round)}
         </span>
         <span className="block truncate text-sm font-semibold">{race.name}</span>
       </span>
@@ -141,7 +141,7 @@ function RacePage({ raceId }: { raceId: number }) {
           <p className="rise mt-8 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-muted" style={rise(1)}>
             <Flag circuitRef={circuit_ref} className="!w-9" />
             <span>{circuitName(circuit_ref)}</span>
-            <span className="num">R{String(round).padStart(2, '0')}</span>
+            <span className="num">{formatRound(round)}</span>
             <span className="num">{formatDate(date)}</span>
           </p>
           <h1 className="rise display mt-3 !text-[clamp(3rem,9vw,6.5rem)]" style={rise(2)}>

@@ -157,22 +157,21 @@ def load_results(conn, season: int, sprint: bool = False) -> None:
         for d in conn.execute(Driver.__table__.select().where(Driver.driver_ref.in_(drivers)))
     }
 
-    rows = []
-    for race in races:
-        for r in race[key]:
-            rows.append(
-                {
-                    "race_id": race_ids[(season, int(race["round"]))],
-                    "driver_id": driver_ids[r["Driver"]["driverId"]],
-                    "driver_number": int(r["number"]),
-                    "team": r["Constructor"]["name"],
-                    "grid": int(r["grid"]),
-                    "position": int(r["position"]),
-                    "position_text": r["positionText"],
-                    "status": r["status"],
-                    "points": Decimal(r["points"]),
-                }
-            )
+    rows = [
+        {
+            "race_id": race_ids[(season, int(race["round"]))],
+            "driver_id": driver_ids[r["Driver"]["driverId"]],
+            "driver_number": int(r["number"]),
+            "team": r["Constructor"]["name"],
+            "grid": int(r["grid"]),
+            "position": int(r["position"]),
+            "position_text": r["positionText"],
+            "status": r["status"],
+            "points": Decimal(r["points"]),
+        }
+        for race in races
+        for r in race[key]
+    ]
     upsert(conn, table, rows, ["race_id", "driver_id"])
     print(
         f"{season}: {len(drivers)} drivers, {len(rows)} {'sprint results' if sprint else 'results'}"
@@ -198,8 +197,7 @@ def position_at_lap_ends(laps: list[dict], changes: list[dict]) -> dict[int, int
         if following is not None and following["date_start"] is not None:
             end = parse_time(following["date_start"])
         elif lap["lap_duration"] is not None and lap["date_start"] is not None:
-            end = parse_time(lap["date_start"]).timestamp() + lap["lap_duration"]
-            end = datetime.fromtimestamp(end, tz=parse_time(lap["date_start"]).tzinfo)
+            end = parse_time(lap["date_start"]) + timedelta(seconds=lap["lap_duration"])
         else:
             result[number] = None
             continue
@@ -344,7 +342,9 @@ def main() -> None:
                     }
                     load_race_laps(conn, race, driver_by_number)
         except RetryLater as error:
-            raise SystemExit(f"Stopped: {error} Rerun later; cached responses are reused.")
+            raise SystemExit(
+                f"Stopped: {error} Rerun later; cached responses are reused."
+            ) from None
 
 
 if __name__ == "__main__":

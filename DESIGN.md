@@ -78,7 +78,7 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 - Retries are off for the Claude calls, so one call can't outlast the 60 second limit. The cost: a transient API error gives 502 straight away.
 - Cost is estimated from documented per-token prices for claude-haiku-5-5. A call that times out is not counted, so the estimate can be low.
 - The log records token use and cost for every question, never the question or the answer.
-- Phase 5: behind a reverse proxy, the rate limit would see the proxy's address for every visitor. uvicorn would then need `--proxy-headers` and trusted forwarded IPs.
+- Behind a host's proxy, the rate limit would see the proxy's address for every visitor. uvicorn reads the visitor's address from `X-Forwarded-For` only from proxies named in `FORWARDED_ALLOW_IPS`, which `render.yaml` sets to `*` (see Hosting).
 
 ## Eval
 
@@ -96,7 +96,7 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 
 ## Website
 
-`frontend/` is a React site that reads the API in the browser. It is dark only, styled like a race-timing screen: hairline rules instead of boxes, lots of space, and one accent. Five colors have fixed roles: Asphalt (page), Carbon (raised panels), Chalk (text), Graphite (secondary text and rules) and Signal red-orange, used only for primary actions, P1, the fastest lap and focus. Team and tyre colors appear only as data marks in the tower and charts. Headlines are Big Shoulders Display (condensed, uppercase), text is IBM Plex Sans, and every position, gap and lap time is IBM Plex Mono with tabular figures. The season page breaks its own grid once: the latest race panel overlaps the foot of the oversized season numerals. Motion is a staggered rise on load, a fade-up on scroll (circuits draw themselves), and the tower replaying a driver's run from grid to flag on hover or focus; all of it is off with reduced motion.
+`frontend/` is a React site that reads the API in the browser. It is dark by default with a light theme, styled like a race-timing screen: hairline rules instead of boxes, lots of space, and one accent. Five colors have fixed roles: Asphalt (page), Carbon (raised panels), Chalk (text), Graphite (secondary text and rules) and Signal red-orange, used only for primary actions, P1, the fastest lap and focus. Team and tyre colors appear only as data marks in the tower and charts. Headlines are Big Shoulders Display (condensed, uppercase), text is IBM Plex Sans, and every position, gap and lap time is IBM Plex Mono with tabular figures. The season page breaks its own grid once: the latest race panel overlaps the foot of the oversized season numerals. Motion is a staggered rise on load, a fade-up on scroll (circuits draw themselves), and the tower replaying a driver's run from grid to flag on hover or focus; all of it is off with reduced motion.
 
 | Decision | Why |
 |---|---|
@@ -117,8 +117,22 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 | A new stint on the same tire whose age keeps counting is merged into the one before | At the 2025 Australian GP the field drove through the pit lane under the safety car on laps 2 to 4, and OpenF1 recorded each pass as a new stint. 169 driver-races in the data have this pattern. The strategy chart shows those stops as pit lane passes, not tire stops. |
 | Stints and pit stops in one strategy chart, rows in finishing order | The pit stop table was a list that was hard to read. One row per driver shows tires and stops together. A "Show as table" section keeps the same facts readable without the chart. |
 | AI answers rendered from a small Markdown subset | The engineer writes bold labels and bullet lists, which showed as raw asterisks. A small reader in `src/markdown.ts` and `Markdown.tsx` handles paragraphs, lists, headings, bold, italic and code, and builds React elements. There is still no `dangerouslySetInnerHTML`, so an answer can never inject markup; a test checks that. |
-| The browser holds the conversation | The page sends the last 3 completed questions and answers with each new one, so the engineer can ask "Which season?" and use the reply. Reloading the page starts over, and a hint says so. |
+| The browser holds the conversation | The page sends the last 3 completed questions and answers with each new one, so the engineer can ask "Which season?" and use the reply. Chats are saved in the browser's local storage (the latest 30), so a reload keeps them and nothing is stored on the server. |
 | No F1 or team logos | It is an unofficial fan project. Team names are plain text, and team colors are used for identification. |
+
+## Hosting
+
+The project runs on three free services. The steps are in [docs/deploy.md](docs/deploy.md).
+
+| Decision | Why |
+|---|---|
+| Neon, Render and Cloudflare Pages, not one rented server | All three have a free plan and deploy from GitHub on every merge, so there is no server to patch and no bill. A single AWS server running Docker Compose would cost about $20 a month. |
+| The database is copied to Neon with `pg_dump` | The data is 38 MB, well inside Neon's free 0.5 GB. Reloading 27 seasons from the data sources takes a long time and runs into their rate limits. |
+| `pool_pre_ping` on the database engine | Neon sleeps when idle and drops its connections. Each connection is tested before use, so the first request after a sleep reconnects, not fails. |
+| `/health` does not query the database | An uptime monitor calls it every 5 minutes to stop Render's free plan from sleeping. If it queried the database, the same pings would keep Neon awake all month and use up its free compute hours. `/races` shows whether the database is reachable. |
+| The Dockerfile reads the port from `PORT` | Render picks the port. Locally it stays 8000. |
+| `FORWARDED_ALLOW_IPS=*` on Render only | The API is reachable only through Render's proxy, so the forwarded address is the visitor's. It can still be forged by a visitor, which would dodge the per-minute limit, so the daily cap and a spend limit in the Anthropic console are the backstop. The default stays strict for Docker Compose. |
+| The spend cap that matters is in the Anthropic console | Free instances restart, and the in-memory daily count restarts with them. |
 
 ## Known limits
 
@@ -130,4 +144,4 @@ The data has clear relationships (a lap belongs to one race and one driver), so 
 - It only knows what the tools return: results from 2000, and lap, tire and pit data from 2023. Its refusals for older data rely on the model following its instructions.
 - Answers can vary between runs. Hard09 (two 2026 races in Spain) passed in both run-3 runs and missed once in run 4 with nothing changed for it. That is why every change is run twice, and why one miss is not tuned away.
 - Refusal scoring relies on a list of phrases, so a correct refusal in new wording can fail until the list is extended. This happened with "doesn't include".
-- The rate limit and daily spend cap are in memory. They reset on restart and would not be shared between several servers.
+- The rate limit and daily spend cap are in memory. They reset on restart and would not be shared between several servers. On a free host that restarts often, the daily cap is weaker than it reads.

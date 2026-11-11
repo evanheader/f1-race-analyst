@@ -6,7 +6,7 @@ const flagFiles = import.meta.glob(
   { eager: true, query: '?url', import: 'default' },
 ) as Record<string, string>
 
-export interface CircuitArt {
+interface CircuitArt {
   /** ISO 3166-1 alpha-2, lowercase. */
   country: string
   /** An SVG path in a 0..100 box, or null when no outline is known. */

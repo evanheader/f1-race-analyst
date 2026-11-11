@@ -1,0 +1,19 @@
+# Render blueprint for the API. See docs/deploy.md for the full steps.
+services:
+  - type: web
+    name: f1-race-analyst-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # "sync: false" means Render asks for the value when the service is created.
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      # Render's proxy is the only way in, so its X-Forwarded-For header is trusted. Without
+      # this the rate limit would see the proxy's address for every visitor.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"

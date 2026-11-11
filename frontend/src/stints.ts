@@ -106,7 +106,7 @@ export const COMPOUND_COLORS: Record<string, string> = {
   UNKNOWN: '#6B7280',
 }
 
-export const COMPOUND_LETTERS: Record<string, string> = {
+const COMPOUND_LETTERS: Record<string, string> = {
   SOFT: 'S',
   MEDIUM: 'M',
   HARD: 'H',

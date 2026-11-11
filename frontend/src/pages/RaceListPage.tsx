@@ -8,7 +8,7 @@ import Listbox from '../components/Listbox'
 import Reveal from '../components/Reveal'
 import RoundTile from '../components/RoundTile'
 import { LoadError } from '../components/Status'
-import { circuitName, formatDate } from '../format'
+import { circuitName, formatDate, formatRound } from '../format'
 import { usePrefetchRace, useRaces } from '../queries'
 
 /** Wins per driver in the season, most first, with the team of their latest win. */
@@ -57,7 +57,7 @@ function Latest({ race, next }: { race: RaceSummary; next?: RaceSummary }) {
         <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-muted">
           <Flag circuitRef={race.circuit_ref} className="!w-8" />
           <span>{circuitName(race.circuit_ref)}</span>
-          <span className="num">R{String(race.round).padStart(2, '0')}</span>
+          <span className="num">{formatRound(race.round)}</span>
           <span className="num">{formatDate(race.date)}</span>
         </p>
         <h2 className="display mt-2 !text-[clamp(2.25rem,5vw,3.75rem)]">{race.name}</h2>
@@ -81,7 +81,7 @@ function Latest({ race, next }: { race: RaceSummary; next?: RaceSummary }) {
         </div>
         {next && (
           <p className="mt-5 text-[0.8125rem] text-muted">
-            Next <span className="num ml-2 text-ink">R{String(next.round).padStart(2, '0')}</span>{' '}
+            Next <span className="num ml-2 text-ink">{formatRound(next.round)}</span>{' '}
             <span className="text-ink">{next.name}</span> · <span className="num">{formatDate(next.date)}</span>
           </p>
         )}
